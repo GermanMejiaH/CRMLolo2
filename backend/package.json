@@ -1,0 +1,20 @@
+{
+  "name": "crm-lolo-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/server.js",
+    "backup": "node -e \"const fs=require('fs');const path=require('path');const src=path.join(process.cwd(),'backend','storage','data.db');const dir=path.join(process.cwd(),'backend','storage','backups');fs.mkdirSync(dir,{recursive:true});const d=new Date();const pad=n=>String(n).padStart(2,'0');const stamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;const dst=path.join(dir, 'data-'+stamp+'.db');fs.copyFileSync(src,dst);console.log('Backup creado:',dst);\""
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.11",
+    "pdfkit": "^0.13.0"
+  }
+}
