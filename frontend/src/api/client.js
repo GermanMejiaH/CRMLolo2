@@ -1,4 +1,4 @@
-const BASE_URL = "http://192.168.1.12:4000"
+const BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) || "http://192.168.1.12:4000"
 
 async function request(path, { method = "GET", token, body, headers = {} } = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -42,6 +42,7 @@ export function createPedido(token, payload) { return request("/pedidos", { meth
 export function updatePedido(token, id, payload) { return request(`/pedidos/${id}`, { method: "PUT", token, body: payload }) }
 export function generateProforma(token, id) { return request(`/pedidos/${id}/proforma`, { method: "POST", token }) }
 export function getProformas(token) { return request("/proformas", { token }) }
+export const API_BASE_URL = BASE_URL
 export function getOptions(token) { return request("/config/options", { token }) }
 export function getReportKpis(token, params = {}) {
   const qs = new URLSearchParams()

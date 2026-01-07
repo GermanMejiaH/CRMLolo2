@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { FileText, Search, RefreshCw } from "lucide-react"
 import { useToast } from "../components/ToastContext"
-import { getProformas } from "../api/client"
+import { getProformas, API_BASE_URL } from "../api/client"
 
 export default function Proformas({ token }) {
   const { addToast } = useToast()
@@ -60,7 +60,7 @@ export default function Proformas({ token }) {
                     <td className="p-4 text-white font-medium">{p.id}</td>
                     <td className="p-4 text-gray-300">{p.pedidoId}</td>
                     <td className="p-4 text-gray-300">{new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:0}).format(p.total)}</td>
-                    <td className="p-4"><a className="px-3 py-1 border border-cyan-500 text-cyan-400 rounded" href={`http://localhost:4000${p.url}`} target="_blank" rel="noreferrer">Descargar</a></td>
+                    <td className="p-4"><a className="px-3 py-1 border border-cyan-500 text-cyan-400 rounded" href={`${API_BASE_URL}${p.url}`} target="_blank" rel="noreferrer">Descargar</a></td>
                   </tr>
                 ))
               )}
