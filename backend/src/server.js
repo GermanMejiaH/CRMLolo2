@@ -42,7 +42,19 @@ dotenv.config()
 
 const app = express()
 const allowedOrigin = process.env.CORS_ORIGIN || ""
-app.use(cors(allowedOrigin ? { origin: allowedOrigin } : {}))
+const allowedList = allowedOrigin.split(",").map(s => s.trim()).filter(Boolean)
+function isOriginAllowed(origin) {
+  if (!origin) return true
+  for (const rule of allowedList) {
+    if (rule === origin) return true
+    if (rule.includes("*")) {
+      const re = new RegExp("^" + rule.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, "[^.]+") + "$")
+      if (re.test(origin)) return true
+    }
+  }
+  return false
+}
+app.use(cors(allowedList.length ? { origin: (origin, cb) => cb(null, isOriginAllowed(origin)) } : {}))
 app.use(express.json())
 
 const port = process.env.PORT || 4000

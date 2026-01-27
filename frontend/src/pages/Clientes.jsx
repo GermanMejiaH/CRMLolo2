@@ -61,8 +61,8 @@ export default function Clientes({ token }) {
   }
 
   async function handleSubmit() {
-    if (!formData.nombre || !formData.email) {
-      addToast("Nombre y email son obligatorios", "error")
+    if (!formData.nombre) {
+      addToast("El nombre es obligatorio", "error")
       return
     }
 
@@ -164,12 +164,9 @@ export default function Clientes({ token }) {
 
   const filteredClientes = clientes
 
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('es-CO', { 
-      style: 'currency', 
-      currency: 'COP',
-      minimumFractionDigits: 0 
-    }).format(value)
+  const formatCurrencyCommas = (value) => {
+    const n = new Intl.NumberFormat('en-US', { minimumFractionDigits: 0 }).format(value)
+    return `$ ${n}`
   }
 
   return (
@@ -218,7 +215,7 @@ export default function Clientes({ token }) {
             <div>
               <p className="text-gray-400 text-sm">Precio Promedio</p>
               <p className="text-3xl font-bold text-purple-400">
-                {formatCurrency(
+                {formatCurrencyCommas(
                   clientes.reduce((sum, c) => sum + (c.precioPersonalizado || 0), 0) / clientes.length || 0
                 )}
               </p>
@@ -370,9 +367,8 @@ export default function Clientes({ token }) {
             </div>
 
             <div className="md:col-span-2">
-              <label className="text-gray-300 text-sm mb-1 block">Email *</label>
+              <label className="text-gray-300 text-sm mb-1 block">Email</label>
               <input
-                required
                 type="email"
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
@@ -504,7 +500,7 @@ export default function Clientes({ token }) {
                       </div>
                     ) : (
                       <button className="text-purple-400 text-lg font-bold flex items-center gap-2" onClick={() => { setPriceEditingId(cliente.id); setPriceEditingValue(String(cliente.precioPersonalizado || "")) }}>
-                        {formatCurrency(cliente.precioPersonalizado)}
+                        {formatCurrencyCommas(cliente.precioPersonalizado)}
                         <Edit className="w-4 h-4" />
                       </button>
                     )}
