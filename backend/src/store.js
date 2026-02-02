@@ -24,14 +24,23 @@ if (seedProducts.c === 0) {
 
 function listClients(filters = {}) {
   const { q, email, minPrecio, maxPrecio, limit, offset, includeInactive = false } = filters
-  let sql = "SELECT * FROM clients WHERE 1=1"
+  let sql = `
+    SELECT c.*, MAX(o.createdAt) as lastOrderDate
+    FROM clients c
+    LEFT JOIN orders o ON c.id = o.clienteId
+    WHERE 1=1
+  `
   const params = []
-  if (!includeInactive) { sql += " AND (active = 1 OR active IS NULL)" }
-  if (q) { sql += " AND lower(nombre) LIKE ?"; params.push(`%${String(q).toLowerCase()}%`) }
-  if (email) { sql += " AND email = ?"; params.push(email) }
-  if (minPrecio) { sql += " AND (precioPersonalizado IS NOT NULL AND precioPersonalizado >= ?)"; params.push(Number(minPrecio)) }
-  if (maxPrecio) { sql += " AND (precioPersonalizado IS NOT NULL AND precioPersonalizado <= ?)"; params.push(Number(maxPrecio)) }
+  if (!includeInactive) { sql += " AND (c.active = 1 OR c.active IS NULL)" }
+  if (q) { sql += " AND lower(c.nombre) LIKE ?"; params.push(`%${String(q).toLowerCase()}%`) }
+  if (email) { sql += " AND c.email = ?"; params.push(email) }
+  if (minPrecio) { sql += " AND (c.precioPersonalizado IS NOT NULL AND c.precioPersonalizado >= ?)"; params.push(Number(minPrecio)) }
+  if (maxPrecio) { sql += " AND (c.precioPersonalizado IS NOT NULL AND c.precioPersonalizado <= ?)"; params.push(Number(maxPrecio)) }
+  
+  sql += " GROUP BY c.id"
+
   if (typeof limit === "number" && typeof offset === "number") { sql += " LIMIT ? OFFSET ?"; params.push(Number(limit), Number(offset)) }
+  
   return db.prepare(sql).all(...params)
 }
 

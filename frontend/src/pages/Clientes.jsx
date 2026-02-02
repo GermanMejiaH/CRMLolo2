@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { Users, Plus, Search, Mail, Phone, MapPin, DollarSign, Calendar, Edit, Trash2, X, Filter, Download, Save, ChevronLeft, ChevronRight, Check, RefreshCw } from "lucide-react"
+import { Users, Plus, Search, Mail, Phone, MapPin, DollarSign, Calendar, Edit, Trash2, X, Filter, Download, Save, ChevronLeft, ChevronRight, Check, RefreshCw, ShoppingBag, AlertTriangle } from "lucide-react"
 import Modal from "../components/Modal"
 import { useToast } from "../components/ToastContext"
 import { getClientes, getClientesPaged, createCliente, updateCliente, desactivarCliente } from "../api/client"
@@ -481,6 +481,22 @@ export default function Clientes({ token }) {
                 <div className="flex items-center gap-2 text-gray-300 text-sm">
                   <Calendar className="w-4 h-4 text-yellow-400" />
                   <span>Desde {new Date(cliente.fechaRegistro).toLocaleDateString('es-CO')}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-300 text-sm">
+                  <ShoppingBag className="w-4 h-4 text-blue-400" />
+                  <span>
+                    Último pedido: {cliente.lastOrderDate 
+                      ? new Date(cliente.lastOrderDate).toLocaleDateString('es-CO') 
+                      : 'N/A'}
+                  </span>
+                  {cliente.lastOrderDate && (Date.now() - cliente.lastOrderDate > 14 * 24 * 60 * 60 * 1000) && (
+                    <div className="relative group ml-auto">
+                      <AlertTriangle className="w-4 h-4 text-red-500 cursor-help" />
+                      <span className="absolute bottom-full right-0 mb-2 px-2 py-1 text-xs text-white bg-red-500 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+                        Sin pedidos recientes (&gt;2 semanas)
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
