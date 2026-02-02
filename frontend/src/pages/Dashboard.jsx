@@ -71,7 +71,7 @@ export default function Dashboard({ token = "demo-token" }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
+    <div className="w-full bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6 rounded-lg">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
@@ -83,7 +83,9 @@ export default function Dashboard({ token = "demo-token" }) {
           </div>
           <div className="flex items-center gap-2 bg-slate-800/50 border border-cyan-500/30 rounded-lg px-4 py-2">
             <Calendar className="w-5 h-5 text-cyan-400" />
-            <span className="text-gray-300">Diciembre 2025</span>
+            <span className="text-gray-300 capitalize">
+              {new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+            </span>
           </div>
         </div>
         <p className="text-gray-400 ml-11">Resumen general de operaciones LOLO</p>
@@ -94,10 +96,6 @@ export default function Dashboard({ token = "demo-token" }) {
         <div className="bg-slate-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-4 shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all">
           <div className="flex items-center justify-between mb-2">
             <DollarSign className="w-8 h-8 text-cyan-400" />
-            <span className="text-green-400 text-sm font-semibold flex items-center gap-1">
-              <TrendingUp className="w-4 h-4" />
-              +12%
-            </span>
           </div>
           <p className="text-gray-400 text-sm">Total Ventas</p>
           <p className="text-2xl font-bold text-cyan-400">{formatCurrency(stats.totalVentas)}</p>
@@ -106,10 +104,6 @@ export default function Dashboard({ token = "demo-token" }) {
         <div className="bg-slate-800/50 backdrop-blur-sm border border-purple-500/30 rounded-lg p-4 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/40 transition-all">
           <div className="flex items-center justify-between mb-2">
             <ShoppingCart className="w-8 h-8 text-purple-400" />
-            <span className="text-green-400 text-sm font-semibold flex items-center gap-1">
-              <TrendingUp className="w-4 h-4" />
-              +8%
-            </span>
           </div>
           <p className="text-gray-400 text-sm">Pedidos Completados</p>
           <p className="text-2xl font-bold text-purple-400">{stats.pedidosCompletados}</p>
@@ -118,10 +112,6 @@ export default function Dashboard({ token = "demo-token" }) {
         <div className="bg-slate-800/50 backdrop-blur-sm border border-green-500/30 rounded-lg p-4 shadow-lg shadow-green-500/20 hover:shadow-green-500/40 transition-all">
           <div className="flex items-center justify-between mb-2">
             <Users className="w-8 h-8 text-green-400" />
-            <span className="text-green-400 text-sm font-semibold flex items-center gap-1">
-              <TrendingUp className="w-4 h-4" />
-              +23
-            </span>
           </div>
           <p className="text-gray-400 text-sm">Clientes Nuevos</p>
           <p className="text-2xl font-bold text-green-400">{stats.clientesNuevos}</p>
