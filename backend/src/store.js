@@ -250,6 +250,16 @@ function updateOrder(id, data) {
   return getOrder(id)
 }
 
+function deleteOrder(id) {
+  const transaction = db.transaction(() => {
+    db.prepare("DELETE FROM order_audit WHERE orderId = ?").run(id)
+    db.prepare("DELETE FROM proformas WHERE pedidoId = ?").run(id)
+    db.prepare("DELETE FROM orders WHERE id = ?").run(id)
+  })
+  transaction()
+  return true
+}
+
 function updateUserPasswordByEmail(email, passwordHash) {
   const u = db.prepare("SELECT * FROM users WHERE email = ?").get(email)
   if (!u) return false
@@ -402,6 +412,7 @@ export {
   getOrder,
   addOrder,
   updateOrder,
+  deleteOrder,
   addProforma,
   listProformas,
   users,

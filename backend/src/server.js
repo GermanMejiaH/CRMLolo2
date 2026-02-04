@@ -27,6 +27,7 @@ import {
   getOrder,
   addOrder,
   updateOrder,
+  deleteOrder,
   addProforma,
   listProformas,
   users,
@@ -271,6 +272,16 @@ app.get("/pedidos/:id", auth, (req, res) => {
   res.json(o)
 })
 
+app.delete("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {
+  const id = Number(req.params.id)
+  try {
+    deleteOrder(id)
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
 app.post("/pedidos", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const { clienteId, productoId, cantidad, precioUnitario, metodoPago, notas } = req.body || {}
   if (!clienteId || !productoId) return res.status(400).json({ error: "referencias" })
@@ -284,8 +295,7 @@ app.post("/pedidos", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const unit = precioUnitario != null ? Number(precioUnitario) : Number(client.precioPersonalizado || prod.precioMinimo || 0)
   const total = unit * cant
   const estado = "Pendiente"
-  const pedido = addOrder({ clienteId: Number(clienteId), productoId: Number(productoId), cantidad: cant, precioUnitario: unit, total, estado, metodoPago: metodoPago || "", notas: notas || "" })
-  pedido.audit.push({ userId: req.user.sub, date: Date.now(), observation: "creado" })
+  const pedido = addOrder({ clienteId: Number(clienteId), productoId: Number(productoId), cantidad: cant, precioUnitario: unit, total, estado, metodoPago: metodoPago || "", notas: notas || "", userId: req.user.sub })
   res.status(201).json(pedido)
 })
 

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react"
-import { ShoppingCart, Search, Plus, RefreshCw, CheckCircle, AlertTriangle, FileText, X } from "lucide-react"
+import { ShoppingCart, Search, Plus, RefreshCw, CheckCircle, AlertTriangle, FileText, X, Trash2 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
 import Modal from "../components/Modal"
-import { getClientes, getProductos, getPedidosFiltered, createPedido, updatePedido, generateProforma, getPedidoAudit, getOptions } from "../api/client"
+import { getClientes, getProductos, getPedidosFiltered, createPedido, updatePedido, deletePedido, generateProforma, getPedidoAudit, getOptions } from "../api/client"
 
 export default function Pedidos({ token }) {
   const { addToast } = useToast()
@@ -89,6 +89,17 @@ export default function Pedidos({ token }) {
       addToast("Pedido completado", "success")
     } catch (error) {
       addToast("Error al completar pedido", "error")
+    }
+  }
+
+  async function eliminar(id) {
+    if (!window.confirm("¿Estás seguro de eliminar este pedido?")) return
+    try {
+      await deletePedido(token, id)
+      load()
+      addToast("Pedido eliminado", "success")
+    } catch (error) {
+      addToast("Error al eliminar pedido", "error")
     }
   }
 
@@ -275,9 +286,10 @@ export default function Pedidos({ token }) {
                       <td className="p-4"><EstadoBadge estado={x.estado} /></td>
                       <td className="p-4">
                         <div className="flex gap-2">
-                          <button className="px-3 py-1 border border-green-500 text-green-400 rounded" onClick={() => completar(x.id)}>Completar</button>
-                          <button className="px-3 py-1 border border-cyan-500 text-cyan-400 rounded" onClick={() => proforma(x.id)}>Proforma</button>
-                          <button className="px-3 py-1 border border-yellow-500 text-yellow-400 rounded" onClick={() => openAudit(x)}>Auditoría</button>
+                          <button className="px-3 py-1 border border-green-500 text-green-400 rounded hover:bg-green-500/10 transition-colors" onClick={() => completar(x.id)}>Completar</button>
+                          <button className="px-3 py-1 border border-cyan-500 text-cyan-400 rounded hover:bg-cyan-500/10 transition-colors" onClick={() => proforma(x.id)}>Proforma</button>
+                          <button className="px-3 py-1 border border-yellow-500 text-yellow-400 rounded hover:bg-yellow-500/10 transition-colors" onClick={() => openAudit(x)}>Auditoría</button>
+                          <button className="p-1 border border-red-500 text-red-400 rounded hover:bg-red-500/10 transition-colors" onClick={() => eliminar(x.id)} title="Eliminar"><Trash2 className="w-5 h-5" /></button>
                         </div>
                       </td>
                     </tr>

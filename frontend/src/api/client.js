@@ -39,6 +39,7 @@ export function desactivarProducto(token, id) { return request(`/productos/${id}
 export function deleteProducto(token, id) { return request(`/productos/${id}`, { method: "DELETE", token }) }
 export function getPedidos(token) { return request("/pedidos", { token }) }
 export function createPedido(token, payload) { return request("/pedidos", { method: "POST", token, body: payload }) }
+export function deletePedido(token, id) { return request(`/pedidos/${id}`, { method: "DELETE", token }) }
 export function updatePedido(token, id, payload) { return request(`/pedidos/${id}`, { method: "PUT", token, body: payload }) }
 export function generateProforma(token, id) { return request(`/pedidos/${id}/proforma`, { method: "POST", token }) }
 export function getProformas(token) { return request("/proformas", { token }) }
