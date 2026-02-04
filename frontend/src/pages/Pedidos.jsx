@@ -106,8 +106,11 @@ export default function Pedidos({ token }) {
   async function proforma(id) {
     try {
       const j = await generateProforma(token, id)
-      if (j.url) window.open(`http://localhost:4000${j.url}`, "_blank")
-      else addToast("Error al generar proforma", "error")
+      if (j.url) {
+        addToast("Proforma generada exitosamente", "success")
+      } else {
+        addToast("Error al generar proforma", "error")
+      }
     } catch (error) {
       addToast("Error al generar proforma", "error")
     }
