@@ -4,9 +4,20 @@ import { fileURLToPath } from 'url'
 import Database from 'better-sqlite3'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const storageRoot = path.join(__dirname, '..', 'storage')
-fs.mkdirSync(storageRoot, { recursive: true })
-const dbPath = path.join(storageRoot, 'data.db')
+let dbPath = ""
+const envDbPath = process.env.DB_PATH && String(process.env.DB_PATH).trim()
+const envStorageDir = process.env.STORAGE_DIR && String(process.env.STORAGE_DIR).trim()
+if (envDbPath) {
+  const dir = path.dirname(envDbPath)
+  fs.mkdirSync(dir, { recursive: true })
+  dbPath = envDbPath
+} else {
+  const storageRoot = envStorageDir || path.join(__dirname, '..', 'storage')
+  fs.mkdirSync(storageRoot, { recursive: true })
+  dbPath = path.join(storageRoot, 'data.db')
+}
+
+try { console.log("DB path:", dbPath) } catch {}
 
 const db = new Database(dbPath)
 db.pragma('journal_mode = WAL')

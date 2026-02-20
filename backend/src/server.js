@@ -88,9 +88,15 @@ if (process.env.ADMIN_PASSWORD) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const storageRoot = path.join(__dirname, "..", "storage")
+const storageRoot = (process.env.STORAGE_DIR && String(process.env.STORAGE_DIR).trim())
+  || (process.env.DB_PATH && path.dirname(String(process.env.DB_PATH).trim()))
+  || path.join(__dirname, "..", "storage")
 const proformaDir = path.join(storageRoot, "proformas")
 fs.mkdirSync(proformaDir, { recursive: true })
+try {
+  console.log("Storage root:", storageRoot)
+  console.log("Proformas dir:", proformaDir)
+} catch {}
 app.use("/static/proformas", express.static(proformaDir))
 
 function signToken(payload) {
