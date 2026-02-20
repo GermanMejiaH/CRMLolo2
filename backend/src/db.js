@@ -1,8 +1,10 @@
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import Database from 'better-sqlite3'
 
-const storageRoot = path.join(process.cwd(), 'backend', 'storage')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const storageRoot = path.join(__dirname, '..', 'storage')
 fs.mkdirSync(storageRoot, { recursive: true })
 const dbPath = path.join(storageRoot, 'data.db')
 

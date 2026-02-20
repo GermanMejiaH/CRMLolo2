@@ -8,18 +8,21 @@ if (seedUser.c === 0) {
   db.prepare("INSERT INTO users (email, passwordHash, role, name) VALUES (?,?,?,?)").run("admin@lolo", "plain:admin123", "Admin", "Admin")
 }
 
-const seedClients = db.prepare("SELECT COUNT(1) as c FROM clients").get()
-if (seedClients.c === 0) {
-  addClient({ nombre: "Moto Repuestos SAS", contacto: "Carlos Rodríguez", telefono: "+57 300 123 4567", email: "carlos@motorepuestos.com", direccion: "Calle 45 #23-12, Medellín", precioPersonalizado: 42000, notas: "Cliente preferencial" })
-  addClient({ nombre: "Auto Express", contacto: "María González", telefono: "+57 301 234 5678", email: "maria@autoexpress.co", direccion: "Carrera 70 #45-89, Medellín", precioPersonalizado: 38000, notas: "" })
-  addClient({ nombre: "Distribuidora Central", contacto: "Juan Pérez", telefono: "+57 302 345 6789", email: "juan@distcentral.com", direccion: "Avenida 80 #30-25, Medellín", precioPersonalizado: 45000, notas: "Factura electrónica" })
-}
+const allowDemoSeed = (process.env.NODE_ENV || "").toLowerCase() !== "production" || String(process.env.SEED_DEMO || "").toLowerCase() === "true"
+if (allowDemoSeed) {
+  const seedClients = db.prepare("SELECT COUNT(1) as c FROM clients").get()
+  if (seedClients.c === 0) {
+    addClient({ nombre: "Moto Repuestos SAS", contacto: "Carlos Rodríguez", telefono: "+57 300 123 4567", email: "carlos@motorepuestos.com", direccion: "Calle 45 #23-12, Medellín", precioPersonalizado: 42000, notas: "Cliente preferencial" })
+    addClient({ nombre: "Auto Express", contacto: "María González", telefono: "+57 301 234 5678", email: "maria@autoexpress.co", direccion: "Carrera 70 #45-89, Medellín", precioPersonalizado: 38000, notas: "" })
+    addClient({ nombre: "Distribuidora Central", contacto: "Juan Pérez", telefono: "+57 302 345 6789", email: "juan@distcentral.com", direccion: "Avenida 80 #30-25, Medellín", precioPersonalizado: 45000, notas: "Factura electrónica" })
+  }
 
-const seedProducts = db.prepare("SELECT COUNT(1) as c FROM products").get()
-if (seedProducts.c === 0) {
-  addProduct({ nombre: "Módulo XR-2000", descripcion: "Módulo avanzado", precioMinimo: 25000, precioMaximo: 45000, stockActual: 15, stockMinimo: 10 })
-  addProduct({ nombre: "Estacionaria Pro", descripcion: "Equipo industrial", precioMinimo: 30000, precioMaximo: 50000, stockActual: 5, stockMinimo: 8 })
-  addProduct({ nombre: "Kit Básico M1", descripcion: "Kit de inicio", precioMinimo: 25000, precioMaximo: 40000, stockActual: 25, stockMinimo: 12 })
+  const seedProducts = db.prepare("SELECT COUNT(1) as c FROM products").get()
+  if (seedProducts.c === 0) {
+    addProduct({ nombre: "Módulo XR-2000", descripcion: "Módulo avanzado", precioMinimo: 25000, precioMaximo: 45000, stockActual: 15, stockMinimo: 10 })
+    addProduct({ nombre: "Estacionaria Pro", descripcion: "Equipo industrial", precioMinimo: 30000, precioMaximo: 50000, stockActual: 5, stockMinimo: 8 })
+    addProduct({ nombre: "Kit Básico M1", descripcion: "Kit de inicio", precioMinimo: 25000, precioMaximo: 40000, stockActual: 25, stockMinimo: 12 })
+  }
 }
 
 function listClients(filters = {}) {
@@ -311,14 +314,16 @@ function getDashboardStats() {
   // KPIs
   const kpis = db.prepare(`
     SELECT
-      SUM(CASE WHEN estado = 'Completado' THEN total ELSE 0 END) as totalVentas,
-      COUNT(CASE WHEN estado = 'Completado' THEN 1 END) as pedidosCompletados
+      SUM(CASE WHEN estado != 'Cancelado' THEN total ELSE 0 END) as totalVentas,
+      COUNT(CASE WHEN estado = 'Completado' THEN 1 END) as pedidosCompletados,
+      COUNT(CASE WHEN estado != 'Cancelado' THEN 1 END) as pedidosNoCancelados
     FROM orders
   `).get()
 
   stats.totalVentas = kpis.totalVentas || 0
   stats.pedidosCompletados = kpis.pedidosCompletados || 0
-  stats.ticketPromedio = stats.pedidosCompletados > 0 ? Math.round(stats.totalVentas / stats.pedidosCompletados) : 0
+  const pedidosConsiderados = kpis.pedidosNoCancelados || 0
+  stats.ticketPromedio = pedidosConsiderados > 0 ? Math.round(stats.totalVentas / pedidosConsiderados) : 0
 
   // Clientes Nuevos (this month)
   const date = new Date()
@@ -336,7 +341,7 @@ function getDashboardStats() {
   const ventasMensuales = db.prepare(`
     SELECT strftime('%Y-%m', datetime(createdAt/1000, 'unixepoch')) as mes, SUM(total) as ventas
     FROM orders
-    WHERE estado = 'Completado'
+    WHERE estado != 'Cancelado'
     GROUP BY mes
     ORDER BY mes DESC
     LIMIT 6
@@ -346,7 +351,7 @@ function getDashboardStats() {
   const ventasDiarias = db.prepare(`
     SELECT strftime('%Y-%m-%d', datetime(createdAt/1000, 'unixepoch')) as dia, SUM(total) as ventas
     FROM orders
-    WHERE estado = 'Completado'
+    WHERE estado != 'Cancelado'
     GROUP BY dia
     ORDER BY dia DESC
     LIMIT 7
@@ -357,7 +362,7 @@ function getDashboardStats() {
     SELECT c.nombre, SUM(o.total) as total
     FROM orders o
     JOIN clients c ON o.clienteId = c.id
-    WHERE o.estado = 'Completado'
+    WHERE o.estado != 'Cancelado'
     GROUP BY o.clienteId
     ORDER BY total DESC
     LIMIT 5
@@ -365,9 +370,9 @@ function getDashboardStats() {
 
   // Metodos de Pago
   const metodosPago = db.prepare(`
-    SELECT metodoPago as name, COUNT(*) as value
+    SELECT COALESCE(metodoPago, 'Sin método') as name, COUNT(*) as value
     FROM orders
-    WHERE estado = 'Completado'
+    WHERE estado != 'Cancelado'
     GROUP BY metodoPago
   `).all()
 

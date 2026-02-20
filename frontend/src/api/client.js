@@ -1,4 +1,18 @@
-const BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) || "http://192.168.1.12:4000"
+const BASE_URL = (() => {
+  const env = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) ? String(import.meta.env.VITE_API_BASE_URL).trim() : ""
+  if (env) return env.replace(/\/$/, "")
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname || ""
+    const proto = window.location.protocol || "http:"
+    const isLocal =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.startsWith("192.168.") ||
+      host.endsWith(".local")
+    if (isLocal) return `${proto}//${host}:4000`
+  }
+  return "http://localhost:4000"
+})()
 
 async function request(path, { method = "GET", token, body, headers = {} } = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -84,4 +98,8 @@ export function getPedidoAudit(token, id, params = {}) {
   const qs = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") qs.set(k, String(v)) })
   return request(`/pedidos/${id}/audit?${qs.toString()}`, { token })
+}
+
+export function getDashboard(token) {
+  return request(`/dashboard`, { token })
 }

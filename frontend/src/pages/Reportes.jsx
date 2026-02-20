@@ -20,6 +20,7 @@ export default function Reportes({ token }) {
   const [series, setSeries] = useState([])
   const [loadingSeries, setLoadingSeries] = useState(false)
   const [granularity, setGranularity] = useState("day")
+  const [delim, setDelim] = useState("semicolon")
   const initFromUrl = React.useRef(false)
 
   function setToday() {
@@ -58,7 +59,7 @@ export default function Reportes({ token }) {
     try {
       if (from && to && new Date(from) > new Date(to)) { addToast("Rango inválido", "warning"); return }
       setLoading(true)
-      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago })
+      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago, delim })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
@@ -77,11 +78,14 @@ export default function Reportes({ token }) {
     try {
       if (from && to && new Date(from) > new Date(to)) { addToast("Rango inválido", "warning"); return }
       setLoadingXlsx(true)
-      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago })
+      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago, delim })
       const text = await blob.text()
+      const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean)
+      const sepLine = lines[0].startsWith("sep=") ? lines.shift() : ""
+      const detectedDelim = sepLine.startsWith("sep=") ? sepLine.slice(4,5) : (delim === "semicolon" ? ";" : ",")
+      const rowsParsed = lines.map(line => line.split(detectedDelim))
       const wb = XLSX.utils.book_new()
-      const dataRows = text.split("\n").map(line => line.split(","))
-      const sheetDetalle = XLSX.utils.aoa_to_sheet(dataRows)
+      const sheetDetalle = XLSX.utils.aoa_to_sheet(rowsParsed)
       const ref = sheetDetalle['!ref']
       if (ref) {
         const rng = XLSX.utils.decode_range(ref)
@@ -244,6 +248,13 @@ export default function Reportes({ token }) {
               <select value={granularity} onChange={e => setGranularity(e.target.value)} className="w-full bg-slate-900/60 border border-cyan-500/30 rounded-lg px-3 py-2 text-gray-300">
                 <option value="day">Día</option>
                 <option value="month">Mes</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-gray-300 text-sm mb-1 block">Separador</label>
+              <select value={delim} onChange={e => setDelim(e.target.value)} className="w-full bg-slate-900/60 border border-cyan-500/30 rounded-lg px-3 py-2 text-gray-300">
+                <option value="semicolon">Punto y coma (;)</option>
+                <option value="comma">Coma (,)</option>
               </select>
             </div>
             <div className="md:col-span-2 flex items-center gap-2">

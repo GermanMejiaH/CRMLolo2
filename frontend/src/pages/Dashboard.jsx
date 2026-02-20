@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { TrendingUp, ShoppingCart, Users, Package, DollarSign, AlertTriangle, Calendar, Activity } from "lucide-react"
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
+import { getDashboard } from "../api/client"
 
 export default function Dashboard({ token = "demo-token" }) {
   const [stats, setStats] = useState({
@@ -23,11 +24,7 @@ export default function Dashboard({ token = "demo-token" }) {
 
   async function loadDashboardData() {
     try {
-      const res = await fetch("http://localhost:4000/dashboard", {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (!res.ok) throw new Error("Failed to load dashboard data")
-      const data = await res.json()
+      const data = await getDashboard(token)
 
       setStats(data.stats)
       setVentasMensuales(data.ventasMensuales)

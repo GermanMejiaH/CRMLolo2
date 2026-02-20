@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
 import fs from "fs"
 import path from "path"
+import { fileURLToPath } from "url"
 import PDFDocument from "pdfkit"
 import nodemailer from "nodemailer"
 import {
@@ -44,6 +45,15 @@ dotenv.config()
 const app = express()
 const allowedOrigin = process.env.CORS_ORIGIN || ""
 const allowedList = allowedOrigin.split(",").map(s => s.trim()).filter(Boolean)
+if (process.env.NODE_ENV !== "production") {
+  ;[
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://192.168.*:5173"
+  ].forEach(o => { if (!allowedList.includes(o)) allowedList.push(o) })
+}
 function isOriginAllowed(origin) {
   if (!origin) return true
   for (const rule of allowedList) {
@@ -77,7 +87,8 @@ if (process.env.ADMIN_PASSWORD) {
   }
 }
 
-const storageRoot = path.join(process.cwd(), "backend", "storage")
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const storageRoot = path.join(__dirname, "..", "storage")
 const proformaDir = path.join(storageRoot, "proformas")
 fs.mkdirSync(proformaDir, { recursive: true })
 app.use("/static/proformas", express.static(proformaDir))
@@ -365,7 +376,7 @@ app.get("/pedidos/:id/audit", auth, (req, res) => {
 // removed legacy KPIs route
 
 app.get("/reportes/ventas.csv", auth, (req, res) => {
-  const { from, to, estado, metodoPago } = req.query
+  const { from, to, estado, metodoPago, delim } = req.query
   function parseDateToTs(v, endOfDay = false) {
     if (!v) return undefined
     const asNum = Number(v)
@@ -379,6 +390,20 @@ app.get("/reportes/ventas.csv", auth, (req, res) => {
     }
     return d.getTime()
   }
+  const delimChar = (() => {
+    if (!delim) return ","
+    const d = String(delim).toLowerCase().trim()
+    if (d === ";" || d === "semicolon" || d === "semi") return ";"
+    if (d === "," || d === "comma") return ","
+    return ","
+  })()
+  function csvEscape(val) {
+    const s = val == null ? "" : String(val)
+    if (s.includes('"') || s.includes("\n") || s.includes("\r") || s.includes(delimChar)) {
+      return `"${s.replace(/"/g, '""')}"`
+    }
+    return s
+  }
   const filters = {}
   const fromTs = parseDateToTs(from, false)
   const toTs = parseDateToTs(to, true)
@@ -387,10 +412,33 @@ app.get("/reportes/ventas.csv", auth, (req, res) => {
   if (estado) filters.estado = String(estado)
   if (metodoPago) filters.metodoPago = String(metodoPago)
   const data = listOrdersWithNames(filters)
-  const header = ["id","fecha","clienteId","clienteNombre","productoId","productoNombre","cantidad","precioUnitario","total","estado","metodoPago"].join(",")
-  const rows = data.map(o => [o.id, new Date(o.createdAt).toISOString(), o.clienteId, o.clienteNombre || "", o.productoId, o.productoNombre || "", o.cantidad, o.precioUnitario, o.total, o.estado, o.metodoPago].join(","))
-  const csv = [header, ...rows].join("\n")
-  res.setHeader("Content-Type", "text/csv")
+  const columns = ["id","fecha","clienteId","clienteNombre","productoId","productoNombre","cantidad","precioUnitario","total","estado","metodoPago"]
+  const header = columns.join(delimChar)
+  const rows = data.map(o => {
+    const values = [
+      o.id,
+      new Date(o.createdAt).toISOString(),
+      o.clienteId,
+      o.clienteNombre || "",
+      o.productoId,
+      o.productoNombre || "",
+      o.cantidad,
+      o.precioUnitario,
+      o.total,
+      o.estado,
+      o.metodoPago || ""
+    ].map(csvEscape)
+    return values.join(delimChar)
+  })
+  const sepLine = `sep=${delimChar}\r\n`
+  const csvBody = [header, ...rows].join("\r\n")
+  const bom = "\uFEFF"
+  const csv = bom + sepLine + csvBody
+  const d = new Date()
+  const pad = n => String(n).padStart(2, "0")
+  const stamp = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
+  res.setHeader("Content-Type", "text/csv; charset=utf-8")
+  res.setHeader("Content-Disposition", `attachment; filename=\"ventas-${stamp}.csv\"`)
   res.send(csv)
 })
 
