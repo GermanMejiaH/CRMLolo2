@@ -470,14 +470,17 @@ app.get("/reportes/kpis", auth, (req, res) => {
   if (typeof toTs === "number") filters.to = toTs
   if (estado) filters.estado = String(estado)
   if (metodoPago) filters.metodoPago = String(metodoPago)
-  const items = listOrders(filters)
+  const itemsRaw = listOrders(filters)
+  const items = itemsRaw.filter(o => o.estado !== "Cancelado")
   const totalVentas = items.reduce((s, o) => s + Number(o.total || 0), 0)
   const pedidos = items.length
   const completados = items.filter(o => o.estado === "Completado").length
   const ticketPromedio = pedidos ? Math.round(totalVentas / pedidos) : 0
   const totalesPorMetodoPago = {}
   for (const m of payments) {
-    totalesPorMetodoPago[m] = items.filter(o => o.metodoPago === m).reduce((s, o) => s + Number(o.total || 0), 0)
+    totalesPorMetodoPago[m] = items
+      .filter(o => ((o.metodoPago && String(o.metodoPago).trim()) ? String(o.metodoPago).trim() : "Efectivo") === m)
+      .reduce((s, o) => s + Number(o.total || 0), 0)
   }
   res.json({ totalVentas, pedidos, completados, ticketPromedio, totalesPorMetodoPago })
 })

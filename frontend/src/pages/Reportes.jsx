@@ -262,7 +262,7 @@ export default function Reportes({ token }) {
               <button className="px-3 py-2 border border-cyan-500/30 rounded text-gray-300 bg-slate-900/60" onClick={setToday}>Hoy</button>
               <button className="px-3 py-2 border border-cyan-500/30 rounded text-gray-300 bg-slate-900/60" onClick={setThisWeek}>Esta semana</button>
               <button className="px-3 py-2 border border-cyan-500/30 rounded text-gray-300 bg-slate-900/60" onClick={setThisMonth}>Este mes</button>
-              <button className="ml-auto px-3 py-2 border border-slate-600 rounded text-gray-300 bg-slate-900/60" onClick={() => { setFrom(""); setTo(""); setEstado("") }}>Limpiar</button>
+              <button className="ml-auto px-3 py-2 border border-slate-600 rounded text-gray-300 bg-slate-900/60" onClick={() => { setFrom(""); setTo(""); setEstado(""); setMetodoPago("") }}>Limpiar</button>
             </div>
             <div className="md:col-span-2 flex items-center gap-2">
               <button disabled={!token || loading} className="flex items-center gap-2 bg-slate-900/60 border border-cyan-500/30 rounded-lg px-4 py-2 text-gray-300 hover:bg-slate-800/60 transition-all disabled:opacity-50" onClick={descargarCSV}>
