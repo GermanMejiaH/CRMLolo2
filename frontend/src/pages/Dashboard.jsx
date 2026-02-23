@@ -32,16 +32,26 @@ export default function Dashboard({ token = "demo-token" }) {
       setTopClientes(data.topClientes)
 
       const paymentColors = { "Efectivo": "#06b6d4", "Transferencia": "#a855f7", "Crédito": "#eab308" }
-      setMetodosPago(data.metodosPago.map(m => ({
-        ...m,
-        color: paymentColors[m.name] || "#ef4444"
-      })))
+      {
+        const totalPayments = (Array.isArray(data.metodosPago) ? data.metodosPago : []).reduce((s, x) => s + Number(x.value || 0), 0)
+        const items = (Array.isArray(data.metodosPago) ? data.metodosPago : []).map(m => ({
+          ...m,
+          percent: totalPayments > 0 ? Math.round((Number(m.value || 0) / totalPayments) * 100) : 0,
+          color: paymentColors[m.name] || "#ef4444"
+        }))
+        setMetodosPago(items)
+      }
 
       const stateColors = { "Completado": "#10b981", "Pendiente": "#eab308", "Cancelado": "#ef4444" }
-      setEstadoPedidos(data.estadoPedidos.map(e => ({
-        ...e,
-        color: stateColors[e.name] || "#94a3b8"
-      })))
+      {
+        const totalStates = (Array.isArray(data.estadoPedidos) ? data.estadoPedidos : []).reduce((s, x) => s + Number(x.value || 0), 0)
+        const items = (Array.isArray(data.estadoPedidos) ? data.estadoPedidos : []).map(e => ({
+          ...e,
+          percent: totalStates > 0 ? Math.round((Number(e.value || 0) / totalStates) * 100) : 0,
+          color: stateColors[e.name] || "#94a3b8"
+        }))
+        setEstadoPedidos(items)
+      }
     } catch (err) {
       console.error(err)
     }
@@ -232,7 +242,7 @@ export default function Dashboard({ token = "demo-token" }) {
             {metodosPago.map((metodo, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: metodo.color }}></div>
-                <span className="text-gray-300 text-sm">{metodo.name} ({metodo.value}%)</span>
+                <span className="text-gray-300 text-sm">{metodo.name} ({metodo.percent}%)</span>
               </div>
             ))}
           </div>
@@ -269,7 +279,7 @@ export default function Dashboard({ token = "demo-token" }) {
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: estado.color }}></div>
                   <span className="text-gray-300 text-sm">{estado.name}</span>
                 </div>
-                <span className="text-gray-400 font-semibold text-sm">{estado.value}</span>
+                <span className="text-gray-400 font-semibold text-sm">{estado.percent}%</span>
               </div>
             ))}
           </div>
