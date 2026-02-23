@@ -25,6 +25,9 @@ export default function Pedidos({ token }) {
   const [auditPage, setAuditPage] = useState(1)
   const [auditLimit, setAuditLimit] = useState(10)
   const [auditTotal, setAuditTotal] = useState(0)
+  const [editOrder, setEditOrder] = useState(null)
+  const [editMetodoPago, setEditMetodoPago] = useState("")
+  const [editCantidad, setEditCantidad] = useState("")
 
   async function load() {
     if (!token) return
@@ -72,8 +75,8 @@ export default function Pedidos({ token }) {
       return
     }
     try {
-      await createPedido(token, { ...nuevo, cantidad: Number(nuevo.cantidad) })
-      setNuevo({ clienteId: "", productoId: "", cantidad: "" })
+      await createPedido(token, { ...nuevo, cantidad: Number(nuevo.cantidad), metodoPago: nuevo.metodoPago || "" })
+      setNuevo({ clienteId: "", productoId: "", cantidad: "", metodoPago: "" })
       setShowForm(false)
       load()
       addToast("Pedido creado exitosamente", "success")
@@ -242,6 +245,17 @@ export default function Pedidos({ token }) {
               onChange={e => setNuevo({ ...nuevo, cantidad: e.target.value })} 
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Método de Pago (opcional)</label>
+            <select 
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors" 
+              value={nuevo.metodoPago || ""} 
+              onChange={e => setNuevo({ ...nuevo, metodoPago: e.target.value })}
+            >
+              <option value="">Sin especificar</option>
+              {payments.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
 
           <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700/50">
             <button
@@ -270,6 +284,7 @@ export default function Pedidos({ token }) {
                 <th className="text-left p-4 text-cyan-400 font-semibold">Producto</th>
                 <th className="text-left p-4 text-cyan-400 font-semibold">Cantidad</th>
                 <th className="text-left p-4 text-cyan-400 font-semibold">Estado</th>
+                <th className="text-left p-4 text-cyan-400 font-semibold">Método Pago</th>
                 <th className="text-left p-4 text-cyan-400 font-semibold">Acciones</th>
               </tr>
             </thead>
@@ -287,11 +302,15 @@ export default function Pedidos({ token }) {
                       <td className="p-4 text-gray-300">{producto?.nombre || ""}</td>
                       <td className="p-4 text-white font-semibold">{x.cantidad}</td>
                       <td className="p-4"><EstadoBadge estado={x.estado} /></td>
+                      <td className="p-4 text-gray-300">{x.metodoPago || "Efectivo"}</td>
                       <td className="p-4">
                         <div className="flex gap-2">
                           <button className="px-3 py-1 border border-green-500 text-green-400 rounded hover:bg-green-500/10 transition-colors" onClick={() => completar(x.id)}>Completar</button>
                           <button className="px-3 py-1 border border-cyan-500 text-cyan-400 rounded hover:bg-cyan-500/10 transition-colors" onClick={() => proforma(x.id)}>Proforma</button>
                           <button className="px-3 py-1 border border-yellow-500 text-yellow-400 rounded hover:bg-yellow-500/10 transition-colors" onClick={() => openAudit(x)}>Auditoría</button>
+                          {x.estado === "Pendiente" && (
+                            <button className="px-3 py-1 border border-purple-500 text-purple-400 rounded hover:bg-purple-500/10 transition-colors" onClick={() => { setEditOrder(x); setEditMetodoPago(x.metodoPago || ""); setEditCantidad(String(x.cantidad || "")); }}>Editar</button>
+                          )}
                           <button className="p-1 border border-red-500 text-red-400 rounded hover:bg-red-500/10 transition-colors" onClick={() => eliminar(x.id)} title="Eliminar"><Trash2 className="w-5 h-5" /></button>
                         </div>
                       </td>
@@ -341,6 +360,38 @@ export default function Pedidos({ token }) {
               <option value={50}>50</option>
             </select>
           </div>
+        </div>
+      </div>
+    </Modal>
+    <Modal isOpen={!!editOrder} onClose={() => setEditOrder(null)} title="Editar Pedido (Pendiente)">
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Cantidad</label>
+            <input type="number" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white" value={editCantidad} onChange={e => setEditCantidad(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Método de Pago</label>
+            <select className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white" value={editMetodoPago} onChange={e => setEditMetodoPago(e.target.value)}>
+              <option value="">Sin especificar</option>
+              {payments.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button className="px-3 py-2 border border-slate-600 text-gray-300 rounded" onClick={() => setEditOrder(null)}>Cancelar</button>
+          <button className="px-3 py-2 bg-gradient-to-r from-cyan-600 to-purple-600 text-white rounded" onClick={async () => {
+            if (!editOrder) return
+            try {
+              const payload = { cantidad: Number(editCantidad), metodoPago: editMetodoPago || "" }
+              await updatePedido(token, editOrder.id, payload)
+              addToast("Pedido actualizado", "success")
+              setEditOrder(null)
+              load()
+            } catch {
+              addToast("Error al actualizar pedido", "error")
+            }
+          }}>Guardar</button>
         </div>
       </div>
     </Modal>

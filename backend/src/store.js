@@ -221,7 +221,7 @@ function listSalesSeries(filters = {}) {
   if (breakdown === "payment") {
     for (const m of payments) {
       const col = m.replace(/[^A-Za-z0-9_]/g, "_")
-      select += `, SUM(CASE WHEN metodoPago = '${m}' THEN total ELSE 0 END) as ${col}`
+      select += `, SUM(CASE WHEN COALESCE(NULLIF(metodoPago,''),'Efectivo') = '${m}' THEN total ELSE 0 END) as ${col}`
     }
   }
   let sql = `SELECT ${select} FROM orders WHERE 1=1`
@@ -240,7 +240,8 @@ function getOrder(id) { return db.prepare("SELECT * FROM orders WHERE id = ?").g
 function addOrder(data) {
   const createdAt = Date.now()
   const stmt = db.prepare("INSERT INTO orders (clienteId, productoId, cantidad, precioUnitario, total, estado, metodoPago, notas, createdAt) VALUES (?,?,?,?,?,?,?,?,?)")
-  const info = stmt.run(Number(data.clienteId), Number(data.productoId), Number(data.cantidad), Number(data.precioUnitario), Number(data.total), String(data.estado), data.metodoPago || null, data.notas || null, createdAt)
+  const metodo = (data.metodoPago && String(data.metodoPago).trim()) ? String(data.metodoPago).trim() : "Efectivo"
+  const info = stmt.run(Number(data.clienteId), Number(data.productoId), Number(data.cantidad), Number(data.precioUnitario), Number(data.total), String(data.estado), metodo, data.notas || null, createdAt)
   const order = getOrder(info.lastInsertRowid)
   db.prepare("INSERT INTO order_audit (orderId, userId, date, observation) VALUES (?,?,?,?)").run(order.id, data.userId || null, Date.now(), "creado")
   return order
@@ -250,7 +251,8 @@ function updateOrder(id, data) {
   const current = getOrder(id)
   if (!current) return null
   const updated = { ...current, ...data }
-  db.prepare("UPDATE orders SET clienteId=?, productoId=?, cantidad=?, precioUnitario=?, total=?, estado=?, metodoPago=?, notas=? WHERE id=?").run(updated.clienteId, updated.productoId, updated.cantidad, updated.precioUnitario, updated.total, updated.estado, updated.metodoPago, updated.notas, id)
+  const metodo = (updated.metodoPago == null) ? current.metodoPago : ((String(updated.metodoPago).trim()) || "Efectivo")
+  db.prepare("UPDATE orders SET clienteId=?, productoId=?, cantidad=?, precioUnitario=?, total=?, estado=?, metodoPago=?, notas=? WHERE id=?").run(updated.clienteId, updated.productoId, updated.cantidad, updated.precioUnitario, updated.total, updated.estado, metodo, updated.notas, id)
   return getOrder(id)
 }
 
@@ -369,12 +371,11 @@ function getDashboardStats() {
     LIMIT 5
   `).all()
 
-  // Metodos de Pago
   const metodosPago = db.prepare(`
-    SELECT COALESCE(metodoPago, 'Sin método') as name, COUNT(*) as value
+    SELECT COALESCE(NULLIF(metodoPago,''),'Efectivo') as name, COUNT(*) as value
     FROM orders
     WHERE estado != 'Cancelado'
-    GROUP BY metodoPago
+    GROUP BY COALESCE(NULLIF(metodoPago,''),'Efectivo')
   `).all()
 
   // Estado Pedidos
