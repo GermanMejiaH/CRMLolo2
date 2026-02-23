@@ -2,7 +2,7 @@ import React, { useState } from "react"
 import { FileSpreadsheet, RefreshCw, Calendar, BarChart3 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
 import { downloadVentasCSV, getOptions, getReportKpis, getReportSeries } from "../api/client"
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 import * as XLSX from "xlsx"
 
 export default function Reportes({ token }) {
@@ -164,7 +164,17 @@ export default function Reportes({ token }) {
         }
         return item
       })
-      setSeries(normalized)
+      if ((!normalized || normalized.length === 0) && Number(kpis.totalVentas || 0) > 0) {
+        const fallback = { bucket: granularity === 'month' ? 'Total' : 'Total', total: Number(kpis.totalVentas || 0) }
+        if (Array.isArray(payments) && payments.length > 0) {
+          for (const m of payments) {
+            fallback[m] = Number((kpis.totalesPorMetodoPago || {})[m] || 0)
+          }
+        }
+        setSeries([fallback])
+      } else {
+        setSeries(normalized)
+      }
     } catch {} finally { setLoadingSeries(false) }
   }
 
@@ -292,6 +302,7 @@ export default function Reportes({ token }) {
                 {payments.map((p, idx) => (
                   <Bar key={p} dataKey={p} stackId="a" fill={idx===0?"#06b6d4":idx===1?"#8b5cf6":"#10b981"} />
                 ))}
+                <Legend />
               </BarChart>
             </ResponsiveContainer>
           </div>
