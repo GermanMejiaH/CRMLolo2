@@ -256,6 +256,10 @@ function updateOrder(id, data) {
   return getOrder(id)
 }
 
+function addOrderAuditEntry(orderId, userId, observation) {
+  db.prepare("INSERT INTO order_audit (orderId, userId, date, observation) VALUES (?,?,?,?)").run(Number(orderId), userId || null, Date.now(), observation || "actualizado")
+}
+
 function deleteOrder(id) {
   const transaction = db.transaction(() => {
     db.prepare("DELETE FROM order_audit WHERE orderId = ?").run(id)
@@ -428,4 +432,5 @@ export {
   listOrderAuditDetailed,
   getDashboardStats,
   updateUserPasswordByEmail,
+  addOrderAuditEntry,
 }

@@ -37,7 +37,8 @@ import {
   listOrderAuditDetailed,
   countOrderAudit,
   getDashboardStats,
-  updateUserPasswordByEmail
+  updateUserPasswordByEmail,
+  addOrderAuditEntry
 } from "./store.js"
 
 dotenv.config()
@@ -322,7 +323,7 @@ app.put("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const before = getOrder(id)
   if (!before) return res.status(404).json({ error: "not_found" })
   const updated = updateOrder(id, body)
-  updated.audit.push({ userId: req.user.sub, date: Date.now(), observation: "actualizado" })
+  try { addOrderAuditEntry(id, req.user.sub, "actualizado") } catch {}
   if (body.estado === "Completado" && before.estado !== "Completado") {
     const prod = getProduct(before.productoId)
     adjustStock(prod.id, -before.cantidad, "pedido_completado", String(id), req.user.sub)
