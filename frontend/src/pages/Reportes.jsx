@@ -192,6 +192,11 @@ export default function Reportes({ token }) {
   }, [])
   React.useEffect(() => { loadKpis(); loadSeries() }, [token, from, to, estado, metodoPago, granularity, payments])
   React.useEffect(() => {
+    if (Number(kpis.totalVentas || 0) > 0 && (!series || series.length === 0)) {
+      loadSeries()
+    }
+  }, [kpis, payments, granularity])
+  React.useEffect(() => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
     if (to) qs.set('to', to)
