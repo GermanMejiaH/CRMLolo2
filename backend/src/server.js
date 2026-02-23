@@ -432,7 +432,7 @@ app.get("/reportes/ventas.csv", auth, (req, res) => {
       o.precioUnitario,
       o.total,
       o.estado,
-      o.metodoPago || ""
+      ((o.metodoPago && String(o.metodoPago).trim()) ? String(o.metodoPago).trim() : "Efectivo")
     ].map(csvEscape)
     return values.join(delimChar)
   })
