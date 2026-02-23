@@ -229,6 +229,7 @@ function listSalesSeries(filters = {}) {
   if (typeof from === "number") { sql += " AND createdAt >= ?"; params.push(Number(from)) }
   if (typeof to === "number") { sql += " AND createdAt <= ?"; params.push(Number(to)) }
   if (estado) { sql += " AND estado = ?"; params.push(String(estado)) }
+  else { sql += " AND estado != 'Cancelado'" }
   if (metodoPago) { sql += " AND metodoPago = ?"; params.push(String(metodoPago)) }
   sql += " GROUP BY bucket ORDER BY bucket"
   return db.prepare(sql).all(...params)

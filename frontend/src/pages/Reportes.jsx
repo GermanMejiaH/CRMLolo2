@@ -150,6 +150,7 @@ export default function Reportes({ token }) {
 
   async function loadSeries() {
     if (!token) return
+    if (!payments || payments.length === 0) return
     try {
       if (from && to && new Date(from) > new Date(to)) return
       setLoadingSeries(true)
@@ -178,7 +179,7 @@ export default function Reportes({ token }) {
     setFrom(f); setTo(t); setEstado(e); setMetodoPago(mp); setGranularity(g === 'month' ? 'month' : 'day')
     initFromUrl.current = true
   }, [])
-  React.useEffect(() => { loadKpis(); loadSeries() }, [token, from, to, estado, metodoPago, granularity])
+  React.useEffect(() => { loadKpis(); loadSeries() }, [token, from, to, estado, metodoPago, granularity, payments])
   React.useEffect(() => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
