@@ -27,6 +27,17 @@ async function request(path, { method = "GET", token, body, headers = {} } = {})
   const isJson = res.headers.get("content-type")?.includes("application/json")
   const data = isJson ? await res.json() : await res.text()
   if (!res.ok) {
+    if (res.status === 401) {
+      try {
+        localStorage.removeItem("token")
+      } catch {}
+      if (typeof window !== "undefined") {
+        const loc = window.location
+        if (loc.pathname !== "/login") {
+          loc.assign("/login")
+        }
+      }
+    }
     const message = typeof data === "string" ? data : data?.error || "error"
     throw new Error(message)
   }
