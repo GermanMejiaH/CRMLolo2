@@ -150,16 +150,17 @@ export default function Reportes({ token }) {
 
   async function loadSeries() {
     if (!token) return
-    if (!payments || payments.length === 0) return
     try {
       if (from && to && new Date(from) > new Date(to)) return
       setLoadingSeries(true)
       const data = await getReportSeries(token, { from, to, estado, metodoPago, granularity, breakdown: 'payment' })
       const normalized = (Array.isArray(data) ? data : []).map(d => {
         const item = { bucket: d.bucket, total: Number(d.total || 0) }
-        for (const m of payments) {
-          const key = m.replace(/[^A-Za-z0-9_]/g, '_')
-          item[m] = Number(d[key] || 0)
+        if (Array.isArray(payments) && payments.length > 0) {
+          for (const m of payments) {
+            const key = m.replace(/[^A-Za-z0-9_]/g, '_')
+            item[m] = Number(d[key] || 0)
+          }
         }
         return item
       })
