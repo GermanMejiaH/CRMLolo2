@@ -287,6 +287,7 @@ export default function Reportes({ token }) {
                 <XAxis dataKey="bucket" tick={{ fill: '#94a3b8' }} />
                 <YAxis tick={{ fill: '#94a3b8' }} />
                 <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #06b6d4', color: '#e2e8f0' }} />
+                <Bar dataKey="total" stackId="a" fill="#475569" />
                 {payments.map((p, idx) => (
                   <Bar key={p} dataKey={p} stackId="a" fill={idx===0?"#06b6d4":idx===1?"#8b5cf6":"#10b981"} />
                 ))}
