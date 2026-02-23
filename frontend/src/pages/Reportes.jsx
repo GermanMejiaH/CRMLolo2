@@ -1,7 +1,7 @@
 import React, { useState } from "react"
 import { FileSpreadsheet, RefreshCw, Calendar, BarChart3 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
-import { downloadVentasCSV, getOptions, getReportKpis, getReportSeries } from "../api/client"
+import { downloadVentasCSV, getOptions, getReportKpis, getReportSeries, getPedidosFiltered } from "../api/client"
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 import * as XLSX from "xlsx"
 
@@ -153,28 +153,34 @@ export default function Reportes({ token }) {
     try {
       if (from && to && new Date(from) > new Date(to)) return
       setLoadingSeries(true)
-      const data = await getReportSeries(token, { from, to, estado, metodoPago, granularity, breakdown: 'payment' })
-      const normalized = (Array.isArray(data) ? data : []).map(d => {
-        const item = { bucket: d.bucket, total: Number(d.total || 0) }
-        if (Array.isArray(payments) && payments.length > 0) {
-          for (const m of payments) {
-            const key = m.replace(/[^A-Za-z0-9_]/g, '_')
-            item[m] = Number(d[key] || 0)
-          }
+      const orders = await getPedidosFiltered(token, { from, to, estado, metodoPago })
+      const pm = (Array.isArray(payments) && payments.length > 0)
+        ? payments
+        : Array.from(new Set((Array.isArray(orders) ? orders : []).map(o => {
+            const m = (o.metodoPago && String(o.metodoPago).trim()) ? String(o.metodoPago).trim() : "Efectivo"
+            return m
+          })))
+      const buckets = new Map()
+      const excludeCancelado = !estado
+      for (const o of (Array.isArray(orders) ? orders : [])) {
+        if (excludeCancelado && o.estado === "Cancelado") continue
+        const d = new Date(Number(o.createdAt))
+        const bucket = granularity === 'month'
+          ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+          : d.toISOString().slice(0,10)
+        const metodo = (o.metodoPago && String(o.metodoPago).trim()) ? String(o.metodoPago).trim() : "Efectivo"
+        const cur = buckets.get(bucket) || { bucket, total: 0 }
+        cur.total = Number(cur.total || 0) + Number(o.total || 0)
+        if (pm && pm.length > 0) {
+          cur[metodo] = Number(cur[metodo] || 0) + Number(o.total || 0)
         }
-        return item
-      })
-      if ((!normalized || normalized.length === 0) && Number(kpis.totalVentas || 0) > 0) {
-        const fallback = { bucket: granularity === 'month' ? 'Total' : 'Total', total: Number(kpis.totalVentas || 0) }
-        if (Array.isArray(payments) && payments.length > 0) {
-          for (const m of payments) {
-            fallback[m] = Number((kpis.totalesPorMetodoPago || {})[m] || 0)
-          }
-        }
-        setSeries([fallback])
-      } else {
-        setSeries(normalized)
+        buckets.set(bucket, cur)
       }
+      const normalized = Array.from(buckets.values()).sort((a,b) => a.bucket.localeCompare(b.bucket))
+      if ((!payments || payments.length === 0) && pm.length > 0) {
+        setPayments(pm)
+      }
+      setSeries(normalized)
     } catch {} finally { setLoadingSeries(false) }
   }
 
