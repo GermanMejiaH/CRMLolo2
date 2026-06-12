@@ -103,6 +103,18 @@ CREATE TABLE IF NOT EXISTS proformas (
   FOREIGN KEY (pedidoId) REFERENCES orders(id) ON DELETE CASCADE,
   FOREIGN KEY (clienteId) REFERENCES clients(id) ON DELETE RESTRICT
 );
+
+CREATE TABLE IF NOT EXISTS client_product_prices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clientId INTEGER NOT NULL,
+  productId INTEGER NOT NULL,
+  price INTEGER NOT NULL,
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  FOREIGN KEY (clientId) REFERENCES clients(id) ON DELETE CASCADE,
+  FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE,
+  UNIQUE(clientId, productId)
+);
 `)
 
 db.exec(`
@@ -110,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_createdAt ON orders(createdAt);
 CREATE INDEX IF NOT EXISTS idx_orders_estado_metodo_createdAt ON orders(estado, metodoPago, createdAt);
 CREATE INDEX IF NOT EXISTS idx_clients_nombre ON clients(nombre);
 CREATE INDEX IF NOT EXISTS idx_products_nombre ON products(nombre);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_client_product_prices ON client_product_prices(clientId, productId);
 `)
 
 function fkList(table) {

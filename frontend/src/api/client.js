@@ -114,3 +114,22 @@ export function getPedidoAudit(token, id, params = {}) {
 export function getDashboard(token) {
   return request(`/dashboard`, { token })
 }
+
+export function getClientPrices(token, clientId) {
+  return request(`/clientes/${clientId}/precios`, { token })
+}
+
+export function setClientProductPrice(token, clientId, productId, price) {
+  return request(`/clientes/${clientId}/precios/${productId}`, { 
+    method: "PUT", 
+    token, 
+    body: { price } 
+  })
+}
+
+export function deleteClientProductPrice(token, clientId, productId) {
+  return request(`/clientes/${clientId}/precios/${productId}`, { 
+    method: "DELETE", 
+    token 
+  })
+}

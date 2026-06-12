@@ -241,7 +241,26 @@ function addOrder(data) {
   const createdAt = Date.now()
   const stmt = db.prepare("INSERT INTO orders (clienteId, productoId, cantidad, precioUnitario, total, estado, metodoPago, notas, createdAt) VALUES (?,?,?,?,?,?,?,?,?)")
   const metodo = (data.metodoPago && String(data.metodoPago).trim()) ? String(data.metodoPago).trim() : "Efectivo"
-  const info = stmt.run(Number(data.clienteId), Number(data.productoId), Number(data.cantidad), Number(data.precioUnitario), Number(data.total), String(data.estado), metodo, data.notas || null, createdAt)
+  
+  // Determine price: use provided precioUnitario, else custom price for product, else client's old precioPersonalizado, else product's precioMinimo
+  let precioUnitario = data.precioUnitario
+  if (precioUnitario == null) {
+    const customPrice = getClientProductPrice(Number(data.clienteId), Number(data.productoId))
+    if (customPrice) {
+      precioUnitario = customPrice.price
+    } else {
+      const client = getClient(Number(data.clienteId))
+      if (client && client.precioPersonalizado != null) {
+        precioUnitario = client.precioPersonalizado
+      } else {
+        const product = getProduct(Number(data.productoId))
+        precioUnitario = product ? product.precioMinimo : 0
+      }
+    }
+  }
+  
+  const total = Number(precioUnitario) * Number(data.cantidad)
+  const info = stmt.run(Number(data.clienteId), Number(data.productoId), Number(data.cantidad), Number(precioUnitario), total, String(data.estado), metodo, data.notas || null, createdAt)
   const order = getOrder(info.lastInsertRowid)
   db.prepare("INSERT INTO order_audit (orderId, userId, date, observation) VALUES (?,?,?,?)").run(order.id, data.userId || null, Date.now(), "creado")
   return order
@@ -399,6 +418,32 @@ function getDashboardStats() {
   }
 }
 
+function getClientProductPrices(clientId) {
+  return db.prepare("SELECT * FROM client_product_prices WHERE clientId = ?").all(clientId)
+}
+
+function getClientProductPrice(clientId, productId) {
+  return db.prepare("SELECT * FROM client_product_prices WHERE clientId = ? AND productId = ?").get(clientId, productId)
+}
+
+function setClientProductPrice(clientId, productId, price) {
+  const now = Date.now()
+  const existing = getClientProductPrice(clientId, productId)
+  if (existing) {
+    db.prepare("UPDATE client_product_prices SET price = ?, updatedAt = ? WHERE id = ?").run(price, now, existing.id)
+    return getClientProductPrice(clientId, productId)
+  } else {
+    const stmt = db.prepare("INSERT INTO client_product_prices (clientId, productId, price, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)")
+    const info = stmt.run(clientId, productId, price, now, now)
+    return db.prepare("SELECT * FROM client_product_prices WHERE id = ?").get(info.lastInsertRowid)
+  }
+}
+
+function deleteClientProductPrice(clientId, productId) {
+  db.prepare("DELETE FROM client_product_prices WHERE clientId = ? AND productId = ?").run(clientId, productId)
+  return true
+}
+
 export {
   payments,
   orderStates,
@@ -433,4 +478,8 @@ export {
   getDashboardStats,
   updateUserPasswordByEmail,
   addOrderAuditEntry,
+  getClientProductPrices,
+  getClientProductPrice,
+  setClientProductPrice,
+  deleteClientProductPrice,
 }

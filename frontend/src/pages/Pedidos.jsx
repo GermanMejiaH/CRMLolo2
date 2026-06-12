@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, useMemo } from "react"
 import { ShoppingCart, Search, Plus, RefreshCw, CheckCircle, AlertTriangle, FileText, X, Trash2 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
 import Modal from "../components/Modal"
-import { getClientes, getProductos, getPedidosFiltered, createPedido, updatePedido, deletePedido, generateProforma, getPedidoAudit, getOptions } from "../api/client"
+import { getClientes, getProductos, getPedidosFiltered, createPedido, updatePedido, deletePedido, generateProforma, getPedidoAudit, getOptions, getClientPrices } from "../api/client"
 
 export default function Pedidos({ token }) {
   const { addToast } = useToast()
@@ -10,7 +10,8 @@ export default function Pedidos({ token }) {
   const [pedidos, setPedidos] = useState([])
   const [clientes, setClientes] = useState([])
   const [productos, setProductos] = useState([])
-  const [nuevo, setNuevo] = useState({ clienteId: "", productoId: "", cantidad: "" })
+  const [nuevo, setNuevo] = useState({ clienteId: "", productoId: "", cantidad: "", precioUnitario: "", metodoPago: "" })
+  const [clientPrices, setClientPrices] = useState([])
   const [searchTerm, setSearchTerm] = useState("")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
@@ -28,6 +29,40 @@ export default function Pedidos({ token }) {
   const [editOrder, setEditOrder] = useState(null)
   const [editMetodoPago, setEditMetodoPago] = useState("")
   const [editCantidad, setEditCantidad] = useState("")
+
+  // Load client prices when client is selected
+  useEffect(() => {
+    if (token && nuevo.clienteId) {
+      getClientPrices(token, Number(nuevo.clienteId)).then(setClientPrices).catch(() => setClientPrices([]))
+    } else {
+      setClientPrices([])
+    }
+  }, [token, nuevo.clienteId])
+
+  // Calculate recommended price
+  const recommendedPrice = useMemo(() => {
+    if (!nuevo.clienteId || !nuevo.productoId) return null
+    const product = productos.find(p => p.id === Number(nuevo.productoId))
+    const client = clientes.find(c => c.id === Number(nuevo.clienteId))
+    if (!product) return null
+
+    // Check custom product price first
+    const customPrice = clientPrices.find(p => p.productId === Number(nuevo.productoId))
+    if (customPrice) return customPrice.price
+
+    // Then check old global custom price
+    if (client && client.precioPersonalizado != null) return client.precioPersonalizado
+
+    // Fallback to product min price
+    return product.precioMinimo
+  }, [nuevo.clienteId, nuevo.productoId, productos, clientes, clientPrices])
+
+  // Calculate total
+  const totalPrice = useMemo(() => {
+    const cantidad = Number(nuevo.cantidad) || 0
+    const precio = Number(nuevo.precioUnitario) || recommendedPrice || 0
+    return cantidad * precio
+  }, [nuevo.cantidad, nuevo.precioUnitario, recommendedPrice])
 
   async function load() {
     if (!token) return
@@ -75,8 +110,15 @@ export default function Pedidos({ token }) {
       return
     }
     try {
-      await createPedido(token, { ...nuevo, cantidad: Number(nuevo.cantidad), metodoPago: nuevo.metodoPago || "" })
-      setNuevo({ clienteId: "", productoId: "", cantidad: "", metodoPago: "" })
+      const precio = nuevo.precioUnitario ? Number(nuevo.precioUnitario) : recommendedPrice
+      await createPedido(token, { 
+        clienteId: Number(nuevo.clienteId), 
+        productoId: Number(nuevo.productoId), 
+        cantidad: Number(nuevo.cantidad), 
+        precioUnitario: precio,
+        metodoPago: nuevo.metodoPago || "" 
+      })
+      setNuevo({ clienteId: "", productoId: "", cantidad: "", precioUnitario: "", metodoPago: "" })
       setShowForm(false)
       load()
       addToast("Pedido creado exitosamente", "success")
@@ -246,6 +288,19 @@ export default function Pedidos({ token }) {
             />
           </div>
           <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Precio Unitario</label>
+            <input 
+              type="number"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors" 
+              placeholder={recommendedPrice ? String(recommendedPrice) : "Precio"} 
+              value={nuevo.precioUnitario} 
+              onChange={e => setNuevo({ ...nuevo, precioUnitario: e.target.value })} 
+            />
+            {recommendedPrice && !nuevo.precioUnitario && (
+              <p className="text-green-400 text-sm mt-1">Usando precio recomendado: ${recommendedPrice}</p>
+            )}
+          </div>
+          <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Método de Pago (opcional)</label>
             <select 
               className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors" 
@@ -255,6 +310,9 @@ export default function Pedidos({ token }) {
               <option value="">Sin especificar</option>
               {payments.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
+          </div>
+          <div className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-4 mt-4">
+            <p className="text-gray-300 text-sm">Total: <span className="text-2xl font-bold text-cyan-400">${totalPrice.toLocaleString()}</span></p>
           </div>
 
           <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700/50">

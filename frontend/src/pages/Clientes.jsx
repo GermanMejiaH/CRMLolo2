@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react"
-import { Users, Plus, Search, Mail, Phone, MapPin, DollarSign, Calendar, Edit, Trash2, X, Filter, Download, Save, ChevronLeft, ChevronRight, Check, RefreshCw, ShoppingBag, AlertTriangle } from "lucide-react"
+import { Users, Plus, Search, Mail, Phone, MapPin, DollarSign, Calendar, Edit, Trash2, X, Filter, Download, Save, ChevronLeft, ChevronRight, Check, RefreshCw, ShoppingBag, AlertTriangle, Settings } from "lucide-react"
 import Modal from "../components/Modal"
 import { useToast } from "../components/ToastContext"
-import { getClientes, getClientesPaged, createCliente, updateCliente, desactivarCliente } from "../api/client"
+import { getClientes, getClientesPaged, createCliente, updateCliente, desactivarCliente, getProductos, getClientPrices, setClientProductPrice, deleteClientProductPrice } from "../api/client"
 
 export default function Clientes({ token }) {
   const { addToast } = useToast()
@@ -32,6 +32,18 @@ export default function Clientes({ token }) {
     precioPersonalizado: "",
     notas: ""
   })
+  
+  // For custom prices per product
+  const [showCustomPrices, setShowCustomPrices] = useState(null)
+  const [products, setProducts] = useState([])
+  const [clientPrices, setClientPrices] = useState([])
+  const [priceEditValues, setPriceEditValues] = useState({})
+  
+  useEffect(() => {
+    if (token) {
+      getProductos(token).then(setProducts).catch(() => {})
+    }
+  }, [token])
 
   useEffect(() => {
     loadClientes()
@@ -167,6 +179,49 @@ export default function Clientes({ token }) {
   const formatCurrencyCommas = (value) => {
     const n = new Intl.NumberFormat('en-US', { minimumFractionDigits: 0 }).format(value)
     return `$ ${n}`
+  }
+
+  async function openCustomPrices(client) {
+    setShowCustomPrices(client)
+    try {
+      const prices = await getClientPrices(token, client.id)
+      setClientPrices(prices)
+      const initialValues = {}
+      prices.forEach(p => {
+        initialValues[p.productId] = String(p.price)
+      })
+      setPriceEditValues(initialValues)
+    } catch (err) {
+      addToast("Error al cargar precios personalizados", "error")
+    }
+  }
+
+  async function saveCustomPrice(productId) {
+    const value = priceEditValues[productId]
+    if (!value || isNaN(Number(value))) {
+      addToast("Precio inválido", "warning")
+      return
+    }
+    try {
+      await setClientProductPrice(token, showCustomPrices.id, productId, Number(value))
+      addToast("Precio actualizado", "success")
+      const prices = await getClientPrices(token, showCustomPrices.id)
+      setClientPrices(prices)
+    } catch (err) {
+      addToast("Error al guardar precio", "error")
+    }
+  }
+
+  async function removeCustomPrice(productId) {
+    try {
+      await deleteClientProductPrice(token, showCustomPrices.id, productId)
+      addToast("Precio eliminado", "success")
+      setPriceEditValues({ ...priceEditValues, [productId]: "" })
+      const prices = await getClientPrices(token, showCustomPrices.id)
+      setClientPrices(prices)
+    } catch (err) {
+      addToast("Error al eliminar precio", "error")
+    }
   }
 
   return (
@@ -541,6 +596,13 @@ export default function Clientes({ token }) {
                       Editar
                     </button>
                     <button
+                      onClick={() => openCustomPrices(cliente)}
+                      className="px-4 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Precios
+                    </button>
+                    <button
                       onClick={() => handleDelete(cliente.id)}
                       className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all"
                     >
@@ -574,6 +636,54 @@ export default function Clientes({ token }) {
           </select>
         </div>
       </div>
+
+      <Modal isOpen={!!showCustomPrices} onClose={() => setShowCustomPrices(null)} title={`Precios Personalizados - ${showCustomPrices?.nombre}`}>
+        <div className="max-h-96 overflow-y-auto">
+          {products.map(product => {
+            const existingPrice = clientPrices.find(p => p.productId === product.id)
+            const currentValue = priceEditValues[product.id] ?? (existingPrice ? String(existingPrice.price) : "")
+            return (
+              <div key={product.id} className="flex items-center justify-between py-3 border-b border-slate-700/50">
+                <div>
+                  <p className="text-white font-medium">{product.nombre}</p>
+                  <p className="text-gray-400 text-sm">Rango: ${product.precioMinimo} - ${product.precioMaximo}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="Precio personalizado"
+                    value={currentValue}
+                    onChange={(e) => setPriceEditValues({ ...priceEditValues, [product.id]: e.target.value })}
+                    className="bg-slate-900 border border-slate-700 rounded p-2 text-white w-32"
+                  />
+                  <button
+                    onClick={() => saveCustomPrice(product.id)}
+                    className="px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-semibold transition-all"
+                  >
+                    <Save className="w-4 h-4" />
+                  </button>
+                  {existingPrice && (
+                    <button
+                      onClick={() => removeCustomPrice(product.id)}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white rounded font-semibold transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex justify-end pt-4">
+          <button
+            onClick={() => setShowCustomPrices(null)}
+            className="px-4 py-2 bg-slate-700 text-gray-300 rounded-lg font-semibold hover:bg-slate-600 transition-all"
+          >
+            Cerrar
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }

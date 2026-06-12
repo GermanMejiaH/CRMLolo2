@@ -38,7 +38,11 @@ import {
   countOrderAudit,
   getDashboardStats,
   updateUserPasswordByEmail,
-  addOrderAuditEntry
+  addOrderAuditEntry,
+  getClientProductPrices,
+  getClientProductPrice,
+  setClientProductPrice,
+  deleteClientProductPrice
 } from "./store.js"
 
 dotenv.config()
@@ -191,6 +195,37 @@ app.post("/clientes/:id/desactivar", auth, allowRoles("Admin", "Operador"), (req
   } catch (e) {
     res.status(400).json({ error: e.message || "error" })
   }
+})
+
+// Client product price endpoints
+app.get("/clientes/:id/precios", auth, (req, res) => {
+  const clientId = Number(req.params.id)
+  const prices = getClientProductPrices(clientId)
+  res.json(prices)
+})
+
+app.get("/clientes/:clientId/precios/:productId", auth, (req, res) => {
+  const clientId = Number(req.params.clientId)
+  const productId = Number(req.params.productId)
+  const price = getClientProductPrice(clientId, productId)
+  if (!price) return res.status(404).json({ error: "not_found" })
+  res.json(price)
+})
+
+app.put("/clientes/:clientId/precios/:productId", auth, allowRoles("Admin", "Operador"), (req, res) => {
+  const clientId = Number(req.params.clientId)
+  const productId = Number(req.params.productId)
+  const { price } = req.body || {}
+  if (price == null) return res.status(400).json({ error: "price_required" })
+  const updated = setClientProductPrice(clientId, productId, Number(price))
+  res.json(updated)
+})
+
+app.delete("/clientes/:clientId/precios/:productId", auth, allowRoles("Admin", "Operador"), (req, res) => {
+  const clientId = Number(req.params.clientId)
+  const productId = Number(req.params.productId)
+  deleteClientProductPrice(clientId, productId)
+  res.json({ ok: true })
 })
 
 app.get("/productos", auth, (req, res) => {
