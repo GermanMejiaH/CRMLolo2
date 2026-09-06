@@ -282,4 +282,50 @@ test("Pruebas de integración API Express con base temporal aislada", async (t) 
     const prof = await profRes.json()
     assert.ok(prof.url.includes("/static/proformas/"))
   })
+
+  await t.test("Gestión de precios personalizados por cliente por producto (API)", async () => {
+    // 1. Asignar precio personalizado a producto 2 para cliente 1
+    const putRes = await fetch(`${baseUrl}/clientes/1/precios/2`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ price: 33000 })
+    })
+    assert.equal(putRes.status, 200)
+    const putJson = await putRes.json()
+    assert.equal(putJson.price, 33000)
+
+    // 2. Obtener precios personalizados del cliente 1
+    const getRes = await fetch(`${baseUrl}/clientes/1/precios`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    assert.equal(getRes.status, 200)
+    const prices = await getRes.json()
+    assert.ok(Array.isArray(prices))
+    const itemPrice = prices.find((p) => p.productId === 2)
+    assert.ok(itemPrice)
+    assert.equal(itemPrice.price, 33000)
+
+    // 3. Eliminar precio personalizado
+    const delRes = await fetch(`${baseUrl}/clientes/1/precios/2`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    assert.equal(delRes.status, 200)
+  })
+
+  await t.test("Validación de stock insuficiente al crear pedido (rechazo HTTP 400)", async () => {
+    const overflowRes = await fetch(`${baseUrl}/pedidos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        clienteId: 1,
+        productoId: 2,
+        cantidad: 999999,
+        metodoPago: "Efectivo"
+      })
+    })
+    assert.equal(overflowRes.status, 400)
+    const json = await overflowRes.json()
+    assert.equal(json.error, "stock")
+  })
 })

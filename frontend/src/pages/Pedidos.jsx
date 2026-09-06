@@ -158,6 +158,19 @@ export default function Pedidos({ token }) {
       return
     }
 
+    // Check stock overflow before submission
+    for (const it of validItems) {
+      const prod = productos.find((p) => p.id === Number(it.productoId))
+      if (prod) {
+        const avail = Number(prod.stockActual || 0)
+        const req = Number(it.cantidad || 0)
+        if (avail < req) {
+          addToast(`Stock insuficiente para ${prod.nombre} (Disponible: ${avail}, Solicitado: ${req})`, "error")
+          return
+        }
+      }
+    }
+
     try {
       const payloadItems = validItems.map((it) => {
         const rec = getItemRecommendedPrice(nuevo.clienteId, it.productoId)
@@ -479,10 +492,34 @@ export default function Pedidos({ token }) {
                           <option value="">Seleccionar</option>
                           {productos.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.nombre}
+                              {p.nombre} (Stock: {p.stockActual || 0})
                             </option>
                           ))}
                         </select>
+                        {(() => {
+                          const selP = productos.find((p) => p.id === Number(item.productoId))
+                          if (!selP) return null
+                          const avail = Number(selP.stockActual || 0)
+                          const req = Number(item.cantidad || 0)
+                          const isExceeded = req > avail
+                          const isLow = avail <= Number(selP.stockMinimo || 0)
+                          if (isExceeded) {
+                            return (
+                              <p className="text-xs text-red-400 font-semibold mt-1">¡Insuficiente! Disp: {avail}</p>
+                            )
+                          }
+                          return (
+                            <p className="text-xs text-slate-400 mt-1">
+                              Disp:{" "}
+                              <span
+                                className={isLow ? "text-yellow-400 font-semibold" : "text-green-400 font-semibold"}
+                              >
+                                {avail} uds
+                              </span>{" "}
+                              {isLow && "(Stock Bajo)"}
+                            </p>
+                          )
+                        })()}
                       </div>
                       <div>
                         <label className="block text-xs text-slate-400 mb-1">Cantidad</label>
