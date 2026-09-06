@@ -187,39 +187,62 @@ export function buildProformaDocument(doc, data) {
 
   y += tableHeaderHeight
 
-  // Fila de Item
-  const itemRowY = y
-  const itemRowHeight = 32
+  // Filas de Items (Soporta múltiples productos)
+  const itemList =
+    Array.isArray(pedido.items) && pedido.items.length > 0
+      ? pedido.items
+      : [
+          {
+            productoNombre: product?.nombre || `Producto #${pedido.productoId}`,
+            productoDescripcion: product?.descripcion || "Módulo o servicio estándar",
+            cantidad: pedido.cantidad,
+            precioUnitario: pedido.precioUnitario,
+            subtotal: pedido.total
+          }
+        ]
 
-  // Fondo alternado ligero
-  doc.rect(margin, itemRowY, contentWidth, itemRowHeight).fill("#FFFFFF")
+  itemList.forEach((item, index) => {
+    const itemRowY = y
+    const itemRowHeight = 32
+    const bgFill = index % 2 === 0 ? "#FFFFFF" : "#F8FAFC"
 
-  const prodName = product?.nombre || `Producto #${pedido.productoId}`
-  const prodDesc = product?.descripcion ? product.descripcion : "Módulo o servicio estándar"
+    doc.rect(margin, itemRowY, contentWidth, itemRowHeight).fill(bgFill)
 
-  doc
-    .fillColor("#0F172A")
-    .fontSize(9.5)
-    .font("Helvetica-Bold")
-    .text(prodName, colDescX, itemRowY + 6, { width: colDescW })
-  doc
-    .fillColor("#64748B")
-    .fontSize(8)
-    .font("Helvetica")
-    .text(prodDesc, colDescX, itemRowY + 18, { width: colDescW })
+    const name = item.productoNombre || `Producto #${item.productoId}`
+    const desc = item.productoDescripcion || "Módulo o servicio estándar"
 
-  doc
-    .fillColor("#334155")
-    .fontSize(9)
-    .font("Helvetica")
-    .text(String(pedido.cantidad || 1), colQtyX, itemRowY + 10, { width: colQtyW, align: "center" })
-  doc.text(formatCOP(pedido.precioUnitario), colUnitPriceX, itemRowY + 10, { width: colUnitPriceW, align: "right" })
-  doc
-    .fillColor("#0F172A")
-    .font("Helvetica-Bold")
-    .text(formatCOP(pedido.total), colTotalX, itemRowY + 10, { width: colTotalW, align: "right" })
+    doc
+      .fillColor("#0F172A")
+      .fontSize(9.5)
+      .font("Helvetica-Bold")
+      .text(name, colDescX, itemRowY + 6, { width: colDescW })
+    doc
+      .fillColor("#64748B")
+      .fontSize(8)
+      .font("Helvetica")
+      .text(desc, colDescX, itemRowY + 18, { width: colDescW })
 
-  y += itemRowHeight
+    doc
+      .fillColor("#334155")
+      .fontSize(9)
+      .font("Helvetica")
+      .text(String(item.cantidad || 1), colQtyX, itemRowY + 10, { width: colQtyW, align: "center" })
+    doc.text(formatCOP(item.precioUnitario), colUnitPriceX, itemRowY + 10, { width: colUnitPriceW, align: "right" })
+    doc
+      .fillColor("#0F172A")
+      .font("Helvetica-Bold")
+      .text(
+        formatCOP(item.subtotal || Number(item.precioUnitario || 0) * Number(item.cantidad || 1)),
+        colTotalX,
+        itemRowY + 10,
+        {
+          width: colTotalW,
+          align: "right"
+        }
+      )
+
+    y += itemRowHeight
+  })
 
   // Borde inferior de la tabla
   doc

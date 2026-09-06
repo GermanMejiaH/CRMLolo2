@@ -413,53 +413,133 @@ function listSalesSeries(filters = {}) {
 }
 
 function getOrder(id) {
-  return db.prepare("SELECT * FROM orders WHERE id = ?").get(id)
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id)
+  if (!order) return null
+  const items = db
+    .prepare(
+      `SELECT oi.*, p.nombre AS productoNombre, p.descripcion AS productoDescripcion
+       FROM order_items oi
+       LEFT JOIN products p ON p.id = oi.productoId
+       WHERE oi.orderId = ?`
+    )
+    .all(id)
+
+  if (items && items.length > 0) {
+    order.items = items
+  } else if (order.productoId) {
+    const p = getProduct(order.productoId)
+    order.items = [
+      {
+        id: 0,
+        orderId: order.id,
+        productoId: order.productoId,
+        productoNombre: p?.nombre || `Producto #${order.productoId}`,
+        productoDescripcion: p?.descripcion || "",
+        cantidad: order.cantidad,
+        precioUnitario: order.precioUnitario,
+        subtotal: order.total
+      }
+    ]
+  } else {
+    order.items = []
+  }
+  return order
 }
 
 function addOrder(data) {
   const createdAt = Date.now()
-  const stmt = db.prepare(
-    "INSERT INTO orders (clienteId, productoId, cantidad, precioUnitario, total, estado, metodoPago, notas, createdAt) VALUES (?,?,?,?,?,?,?,?,?)"
-  )
   const metodo = data.metodoPago && String(data.metodoPago).trim() ? String(data.metodoPago).trim() : "Efectivo"
 
-  // Determine price: use provided precioUnitario, else custom price for product, else client's old precioPersonalizado, else product's precioMinimo
-  let precioUnitario = data.precioUnitario
-  if (precioUnitario == null) {
-    const customPrice = getClientProductPrice(Number(data.clienteId), Number(data.productoId))
-    if (customPrice) {
-      precioUnitario = customPrice.price
-    } else {
-      const client = getClient(Number(data.clienteId))
-      if (client && client.precioPersonalizado != null) {
-        precioUnitario = client.precioPersonalizado
-      } else {
-        const product = getProduct(Number(data.productoId))
-        precioUnitario = product ? product.precioMinimo : 0
+  // Preparar lista de ítems a procesar
+  let itemsToProcess = []
+  if (Array.isArray(data.items) && data.items.length > 0) {
+    itemsToProcess = data.items.map((it) => ({ ...it }))
+  } else if (data.productoId) {
+    itemsToProcess = [
+      {
+        productoId: data.productoId,
+        cantidad: data.cantidad,
+        precioUnitario: data.precioUnitario
       }
-    }
+    ]
   }
 
-  const total = Number(precioUnitario) * Number(data.cantidad)
-  const info = stmt.run(
-    Number(data.clienteId),
-    Number(data.productoId),
-    Number(data.cantidad),
-    Number(precioUnitario),
-    total,
-    String(data.estado),
-    metodo,
-    data.notas || null,
-    createdAt
+  if (itemsToProcess.length === 0) {
+    throw new Error("El pedido debe contener al menos un producto")
+  }
+
+  // Calcular precios y subtotales por cada ítem
+  let totalPedido = 0
+  const processedItems = itemsToProcess.map((item) => {
+    const pid = Number(item.productoId)
+    const cant = Number(item.cantidad || 1)
+    let unitPrice = item.precioUnitario
+
+    if (unitPrice == null) {
+      const customPrice = getClientProductPrice(Number(data.clienteId), pid)
+      if (customPrice) {
+        unitPrice = customPrice.price
+      } else {
+        const client = getClient(Number(data.clienteId))
+        if (client && client.precioPersonalizado != null) {
+          unitPrice = client.precioPersonalizado
+        } else {
+          const product = getProduct(pid)
+          unitPrice = product ? product.precioMinimo : 0
+        }
+      }
+    }
+
+    const subtotal = Number(unitPrice) * cant
+    totalPedido += subtotal
+    return {
+      productoId: pid,
+      cantidad: cant,
+      precioUnitario: Number(unitPrice),
+      subtotal
+    }
+  })
+
+  // Primer ítem para columnas legacy
+  const primaryItem = processedItems[0]
+
+  const stmtOrder = db.prepare(
+    "INSERT INTO orders (clienteId, productoId, cantidad, precioUnitario, total, estado, metodoPago, notas, createdAt) VALUES (?,?,?,?,?,?,?,?,?)"
   )
-  const order = getOrder(info.lastInsertRowid)
-  db.prepare("INSERT INTO order_audit (orderId, userId, date, observation) VALUES (?,?,?,?)").run(
-    order.id,
-    data.userId || null,
-    Date.now(),
-    "creado"
+  const stmtItem = db.prepare(
+    "INSERT INTO order_items (orderId, productoId, cantidad, precioUnitario, subtotal) VALUES (?,?,?,?,?)"
   )
-  return order
+
+  const transaction = db.transaction(() => {
+    const info = stmtOrder.run(
+      Number(data.clienteId),
+      primaryItem.productoId,
+      primaryItem.cantidad,
+      primaryItem.precioUnitario,
+      totalPedido,
+      String(data.estado || "Pendiente"),
+      metodo,
+      data.notas || null,
+      createdAt
+    )
+    const orderId = info.lastInsertRowid
+
+    for (const item of processedItems) {
+      stmtItem.run(orderId, item.productoId, item.cantidad, item.precioUnitario, item.subtotal)
+    }
+
+    db.prepare("INSERT INTO order_audit (orderId, userId, date, observation) VALUES (?,?,?,?)").run(
+      orderId,
+      data.userId || null,
+      Date.now(),
+      "creado"
+    )
+
+    return orderId
+  })
+
+  const newOrderId = transaction()
+  return getOrder(newOrderId)
 }
 
 function updateOrder(id, data) {
@@ -496,6 +576,7 @@ function deleteOrder(id) {
   const transaction = db.transaction(() => {
     db.prepare("DELETE FROM order_audit WHERE orderId = ?").run(id)
     db.prepare("DELETE FROM proformas WHERE pedidoId = ?").run(id)
+    db.prepare("DELETE FROM order_items WHERE orderId = ?").run(id)
     db.prepare("DELETE FROM orders WHERE id = ?").run(id)
   })
   transaction()

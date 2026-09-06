@@ -23,10 +23,9 @@ export default function Pedidos({ token }) {
   const [productos, setProductos] = useState([])
   const [nuevo, setNuevo] = useState({
     clienteId: "",
-    productoId: "",
-    cantidad: "",
-    precioUnitario: "",
-    metodoPago: ""
+    metodoPago: "",
+    notas: "",
+    items: [{ productoId: "", cantidad: 1, precioUnitario: "" }]
   })
   const [clientPrices, setClientPrices] = useState([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -58,30 +57,50 @@ export default function Pedidos({ token }) {
     }
   }, [token, nuevo.clienteId])
 
-  // Calculate recommended price
-  const recommendedPrice = useMemo(() => {
-    if (!nuevo.clienteId || !nuevo.productoId) return null
-    const product = productos.find((p) => p.id === Number(nuevo.productoId))
-    const client = clientes.find((c) => c.id === Number(nuevo.clienteId))
+  function getItemRecommendedPrice(clienteId, productoId) {
+    if (!clienteId || !productoId) return null
+    const product = productos.find((p) => p.id === Number(productoId))
+    const client = clientes.find((c) => c.id === Number(clienteId))
     if (!product) return null
 
-    // Check custom product price first
-    const customPrice = clientPrices.find((p) => p.productId === Number(nuevo.productoId))
+    const customPrice = clientPrices.find((p) => p.productId === Number(productoId))
     if (customPrice) return customPrice.price
 
-    // Then check old global custom price
     if (client && client.precioPersonalizado != null) return client.precioPersonalizado
 
-    // Fallback to product min price
     return product.precioMinimo
-  }, [nuevo.clienteId, nuevo.productoId, productos, clientes, clientPrices])
+  }
 
-  // Calculate total
   const totalPrice = useMemo(() => {
-    const cantidad = Number(nuevo.cantidad) || 0
-    const precio = Number(nuevo.precioUnitario) || recommendedPrice || 0
-    return cantidad * precio
-  }, [nuevo.cantidad, nuevo.precioUnitario, recommendedPrice])
+    return nuevo.items.reduce((sum, item) => {
+      const cant = Number(item.cantidad) || 0
+      const rec = getItemRecommendedPrice(nuevo.clienteId, item.productoId)
+      const unit = item.precioUnitario !== "" && item.precioUnitario != null ? Number(item.precioUnitario) : rec || 0
+      return sum + cant * unit
+    }, 0)
+  }, [nuevo.items, nuevo.clienteId, clientPrices, productos, clientes])
+
+  function handleItemChange(index, field, value) {
+    setNuevo((prev) => {
+      const updated = [...prev.items]
+      updated[index] = { ...updated[index], [field]: value }
+      return { ...prev, items: updated }
+    })
+  }
+
+  function addItemRow() {
+    setNuevo((prev) => ({
+      ...prev,
+      items: [...prev.items, { productoId: "", cantidad: 1, precioUnitario: "" }]
+    }))
+  }
+
+  function removeItemRow(index) {
+    setNuevo((prev) => {
+      if (prev.items.length <= 1) return prev
+      return { ...prev, items: prev.items.filter((_, i) => i !== index) }
+    })
+  }
 
   async function load() {
     if (!token) return
@@ -129,20 +148,39 @@ export default function Pedidos({ token }) {
   }, [from, to, estado, metodoPago])
 
   async function crear() {
-    if (!nuevo.clienteId || !nuevo.productoId || !nuevo.cantidad) {
-      addToast("Por favor completa todos los campos", "warning")
+    if (!nuevo.clienteId) {
+      addToast("Por favor selecciona un cliente", "warning")
       return
     }
+    const validItems = nuevo.items.filter((it) => it.productoId && Number(it.cantidad) > 0)
+    if (validItems.length === 0) {
+      addToast("Por favor agrega al menos un producto válido al pedido", "warning")
+      return
+    }
+
     try {
-      const precio = nuevo.precioUnitario ? Number(nuevo.precioUnitario) : recommendedPrice
+      const payloadItems = validItems.map((it) => {
+        const rec = getItemRecommendedPrice(nuevo.clienteId, it.productoId)
+        const unit = it.precioUnitario !== "" && it.precioUnitario != null ? Number(it.precioUnitario) : rec
+        return {
+          productoId: Number(it.productoId),
+          cantidad: Number(it.cantidad),
+          precioUnitario: unit != null ? Number(unit) : undefined
+        }
+      })
+
       await createPedido(token, {
         clienteId: Number(nuevo.clienteId),
-        productoId: Number(nuevo.productoId),
-        cantidad: Number(nuevo.cantidad),
-        precioUnitario: precio,
-        metodoPago: nuevo.metodoPago || ""
+        metodoPago: nuevo.metodoPago || "",
+        notas: nuevo.notas || "",
+        items: payloadItems
       })
-      setNuevo({ clienteId: "", productoId: "", cantidad: "", precioUnitario: "", metodoPago: "" })
+      setNuevo({
+        clienteId: "",
+        metodoPago: "",
+        notas: "",
+        items: [{ productoId: "", cantidad: 1, precioUnitario: "" }]
+      })
       setShowForm(false)
       load()
       addToast("Pedido creado exitosamente", "success")
@@ -392,45 +430,91 @@ export default function Pedidos({ token }) {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Producto</label>
-              <select
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                value={nuevo.productoId}
-                onChange={(e) => setNuevo({ ...nuevo, productoId: e.target.value })}
+            <div className="flex items-center justify-between pt-2">
+              <label className="block text-sm font-medium text-slate-300">Productos del Pedido</label>
+              <button
+                type="button"
+                onClick={addItemRow}
+                className="flex items-center gap-1 text-xs font-semibold bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 rounded px-2.5 py-1 hover:bg-cyan-500/30 transition-colors"
               >
-                <option value="">Seleccionar Producto</option>
-                {productos.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-              </select>
+                <Plus className="w-3.5 h-3.5" />
+                Agregar Producto
+              </button>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Cantidad</label>
-              <input
-                type="number"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                placeholder="0"
-                value={nuevo.cantidad}
-                onChange={(e) => setNuevo({ ...nuevo, cantidad: e.target.value })}
-              />
+            <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+              {nuevo.items.map((item, idx) => {
+                const recPrice = getItemRecommendedPrice(nuevo.clienteId, item.productoId)
+                const unit =
+                  item.precioUnitario !== "" && item.precioUnitario != null
+                    ? Number(item.precioUnitario)
+                    : recPrice || 0
+                const sub = (Number(item.cantidad) || 0) * unit
+                return (
+                  <div
+                    key={idx}
+                    className="bg-slate-900/80 border border-slate-700/70 rounded-lg p-3 relative space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-cyan-400 font-semibold">Ítem #{idx + 1}</span>
+                      {nuevo.items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeItemRow(idx)}
+                          className="text-red-400 hover:text-red-300 p-1"
+                          title="Eliminar producto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <div className="md:col-span-1">
+                        <label className="block text-xs text-slate-400 mb-1">Producto</label>
+                        <select
+                          className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          value={item.productoId}
+                          onChange={(e) => handleItemChange(idx, "productoId", e.target.value)}
+                        >
+                          <option value="">Seleccionar</option>
+                          {productos.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.nombre}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Cantidad</label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          value={item.cantidad}
+                          onChange={(e) => handleItemChange(idx, "cantidad", e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Precio Unit. ($)</label>
+                        <input
+                          type="number"
+                          className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          placeholder={recPrice ? String(recPrice) : "Precio"}
+                          value={item.precioUnitario}
+                          onChange={(e) => handleItemChange(idx, "precioUnitario", e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {sub > 0 && (
+                      <div className="text-right text-xs text-gray-400">
+                        Subtotal: <span className="text-cyan-400 font-semibold">${sub.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Precio Unitario</label>
-              <input
-                type="number"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                placeholder={recommendedPrice ? String(recommendedPrice) : "Precio"}
-                value={nuevo.precioUnitario}
-                onChange={(e) => setNuevo({ ...nuevo, precioUnitario: e.target.value })}
-              />
-              {recommendedPrice && !nuevo.precioUnitario && (
-                <p className="text-green-400 text-sm mt-1">Usando precio recomendado: ${recommendedPrice}</p>
-              )}
-            </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">Método de Pago (opcional)</label>
               <select
@@ -446,9 +530,11 @@ export default function Pedidos({ token }) {
                 ))}
               </select>
             </div>
+
             <div className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-4 mt-4">
               <p className="text-gray-300 text-sm">
-                Total: <span className="text-2xl font-bold text-cyan-400">${totalPrice.toLocaleString()}</span>
+                Total Acumulado:{" "}
+                <span className="text-2xl font-bold text-cyan-400">${totalPrice.toLocaleString()}</span>
               </p>
             </div>
 
@@ -476,8 +562,9 @@ export default function Pedidos({ token }) {
                 <tr className="border-b border-cyan-500/30">
                   <th className="text-left p-4 text-cyan-400 font-semibold">ID</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Cliente</th>
-                  <th className="text-left p-4 text-cyan-400 font-semibold">Producto</th>
-                  <th className="text-left p-4 text-cyan-400 font-semibold">Cantidad</th>
+                  <th className="text-left p-4 text-cyan-400 font-semibold">Productos / Ítems</th>
+                  <th className="text-left p-4 text-cyan-400 font-semibold">Cant. Total</th>
+                  <th className="text-left p-4 text-cyan-400 font-semibold">Total ($)</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Estado</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Método Pago</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Acciones</th>
@@ -486,7 +573,7 @@ export default function Pedidos({ token }) {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="text-center p-8 text-gray-400">
+                    <td colSpan="8" className="text-center p-8 text-gray-400">
                       No hay pedidos
                     </td>
                   </tr>
@@ -494,12 +581,21 @@ export default function Pedidos({ token }) {
                   filtered.map((x) => {
                     const cliente = clientes.find((c) => c.id === x.clienteId)
                     const producto = productos.find((p) => p.id === x.productoId)
+                    const hasItems = Array.isArray(x.items) && x.items.length > 0
+                    const itemNames = hasItems
+                      ? x.items.map((i) => i.productoNombre || `Producto #${i.productoId}`).join(", ")
+                      : producto?.nombre || `Producto #${x.productoId}`
+                    const totalQty = hasItems ? x.items.reduce((s, i) => s + Number(i.cantidad || 0), 0) : x.cantidad
+
                     return (
                       <tr key={x.id} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-all">
                         <td className="p-4 text-white font-medium">{x.id}</td>
                         <td className="p-4 text-gray-300">{cliente?.nombre || ""}</td>
-                        <td className="p-4 text-gray-300">{producto?.nombre || ""}</td>
-                        <td className="p-4 text-white font-semibold">{x.cantidad}</td>
+                        <td className="p-4 text-gray-300 max-w-xs truncate" title={itemNames}>
+                          {itemNames}
+                        </td>
+                        <td className="p-4 text-white font-semibold">{totalQty}</td>
+                        <td className="p-4 text-cyan-400 font-bold">${(x.total || 0).toLocaleString()}</td>
                         <td className="p-4">
                           <EstadoBadge estado={x.estado} />
                         </td>

@@ -218,4 +218,68 @@ test("Pruebas de integración API Express con base temporal aislada", async (t) 
     assert.ok(prof.url.includes("/static/proformas/"))
     assert.ok(typeof prof.proformaId === "number")
   })
+
+  await t.test("Validación de entradas con Zod en clientes, productos y pedidos", async () => {
+    // 1. Cliente con email inválido
+    const badClientRes = await fetch(`${baseUrl}/clientes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ nombre: "Cliente Bad", email: "not-an-email" })
+    })
+    assert.equal(badClientRes.status, 400)
+    const badClientJson = await badClientRes.json()
+    assert.equal(badClientJson.error, "validation_error")
+
+    // 2. Producto con precio mínimo mayor al máximo
+    const badProductRes = await fetch(`${baseUrl}/productos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ nombre: "Producto Bad", precioMinimo: 500, precioMaximo: 100 })
+    })
+    assert.equal(badProductRes.status, 400)
+    const badProductJson = await badProductRes.json()
+    assert.equal(badProductJson.error, "validation_error")
+
+    // 3. Pedido sin ítems ni campos legacy
+    const badOrderRes = await fetch(`${baseUrl}/pedidos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ clienteId: 1 })
+    })
+    assert.equal(badOrderRes.status, 400)
+    const badOrderJson = await badOrderRes.json()
+    assert.equal(badOrderJson.error, "validation_error")
+  })
+
+  await t.test("Creación de pedidos multiproducto y generación de proforma PDF", async () => {
+    const multiOrderRes = await fetch(`${baseUrl}/pedidos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        clienteId: 1,
+        metodoPago: "Transferencia",
+        items: [
+          { productoId: 1, cantidad: 2, precioUnitario: 30000 },
+          { productoId: 2, cantidad: 1, precioUnitario: 40000 }
+        ],
+        notas: "Pedido multiproducto de prueba"
+      })
+    })
+
+    assert.equal(multiOrderRes.status, 201)
+    const multiOrder = await multiOrderRes.json()
+    assert.equal(multiOrder.total, 100000)
+    assert.equal(multiOrder.items.length, 2)
+    assert.equal(multiOrder.items[0].subtotal, 60000)
+    assert.equal(multiOrder.items[1].subtotal, 40000)
+
+    // Proforma en PDF para pedido multiproducto
+    const profRes = await fetch(`${baseUrl}/pedidos/${multiOrder.id}/proforma`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    assert.equal(profRes.status, 200)
+    const prof = await profRes.json()
+    assert.ok(prof.url.includes("/static/proformas/"))
+  })
 })

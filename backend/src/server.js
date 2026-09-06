@@ -46,6 +46,7 @@ import {
   deleteClientProductPrice
 } from "./store.js"
 
+import { validate, clientSchema, productSchema, orderSchema } from "./schemas.js"
 import config from "./config.js"
 
 const app = express()
@@ -274,12 +275,9 @@ app.get("/clientes", auth, (req, res) => {
   }
 })
 
-app.post("/clientes", auth, allowRoles("Admin", "Operador"), (req, res) => {
-  const { nombre, contacto, telefono, email, direccion, precioPersonalizado, notas } = req.body || {}
-  if (!nombre) return res.status(400).json({ error: "nombre" })
-  if (email && !validEmail(email)) return res.status(400).json({ error: "email" })
-  const precio = precioPersonalizado == null ? null : Number(precioPersonalizado)
-  const c = addClient({ nombre, contacto, telefono, email, direccion, precioPersonalizado: precio, notas })
+app.post("/clientes", auth, allowRoles("Admin", "Operador"), validate(clientSchema), (req, res) => {
+  const { nombre, contacto, telefono, email, direccion, precioPersonalizado, notas } = req.body
+  const c = addClient({ nombre, contacto, telefono, email, direccion, precioPersonalizado, notas })
   res.status(201).json(c)
 })
 
@@ -347,16 +345,15 @@ app.get("/productos", auth, (req, res) => {
   }
 })
 
-app.post("/productos", auth, allowRoles("Admin", "Operador"), (req, res) => {
-  const { nombre, descripcion, precioMinimo, precioMaximo, stockActual, stockMinimo } = req.body || {}
-  if (!nombre) return res.status(400).json({ error: "nombre" })
+app.post("/productos", auth, allowRoles("Admin", "Operador"), validate(productSchema), (req, res) => {
+  const { nombre, descripcion, precioMinimo, precioMaximo, stockActual, stockMinimo } = req.body
   const p = addProduct({
     nombre,
     descripcion,
-    precioMinimo: Number(precioMinimo || 0),
-    precioMaximo: Number(precioMaximo || 0),
-    stockActual: Number(stockActual || 0),
-    stockMinimo: Number(stockMinimo || 0)
+    precioMinimo,
+    precioMaximo,
+    stockActual: stockActual ?? 0,
+    stockMinimo: stockMinimo ?? 0
   })
   res.status(201).json(p)
 })
@@ -450,30 +447,36 @@ app.delete("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => 
   }
 })
 
-app.post("/pedidos", auth, allowRoles("Admin", "Operador"), (req, res) => {
-  const { clienteId, productoId, cantidad, precioUnitario, metodoPago, notas } = req.body || {}
-  if (!clienteId || !productoId) return res.status(400).json({ error: "referencias" })
-  const cant = Number(cantidad || 0)
-  if (cant <= 0) return res.status(400).json({ error: "cantidad" })
-  const prod = getProduct(Number(productoId))
-  if (!prod) return res.status(400).json({ error: "producto" })
-  if ((prod.stockActual || 0) < cant) return res.status(400).json({ error: "stock" })
+app.post("/pedidos", auth, allowRoles("Admin", "Operador"), validate(orderSchema), (req, res) => {
+  const { clienteId, productoId, cantidad, precioUnitario, items, metodoPago, notas } = req.body
   const client = getClient(Number(clienteId))
   if (!client) return res.status(400).json({ error: "cliente" })
-  const unit =
-    precioUnitario != null ? Number(precioUnitario) : Number(client.precioPersonalizado || prod.precioMinimo || 0)
-  const total = unit * cant
-  const estado = "Pendiente"
+
+  const itemsToProcess =
+    Array.isArray(items) && items.length > 0
+      ? items
+      : [
+          {
+            productoId: Number(productoId),
+            cantidad: Number(cantidad),
+            precioUnitario: precioUnitario != null ? Number(precioUnitario) : undefined
+          }
+        ]
+
+  for (const item of itemsToProcess) {
+    const cant = Number(item.cantidad || 0)
+    if (cant <= 0) return res.status(400).json({ error: "cantidad" })
+    const prod = getProduct(Number(item.productoId))
+    if (!prod) return res.status(400).json({ error: "producto" })
+    if ((prod.stockActual || 0) < cant) return res.status(400).json({ error: "stock" })
+  }
+
   const pedido = addOrder({
     clienteId: Number(clienteId),
-    productoId: Number(productoId),
-    cantidad: cant,
-    precioUnitario: unit,
-    total,
-    estado,
-    metodoPago: metodoPago || "",
+    items: itemsToProcess,
+    metodoPago: metodoPago || "Efectivo",
     notas: notas || "",
-    userId: req.user.sub
+    userId: req.user?.sub
   })
   res.status(201).json(pedido)
 })
