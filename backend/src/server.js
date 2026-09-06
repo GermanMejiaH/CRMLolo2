@@ -43,10 +43,14 @@ import {
   getClientProductPrices,
   getClientProductPrice,
   setClientProductPrice,
-  deleteClientProductPrice
+  deleteClientProductPrice,
+  addOrderPayment,
+  getOrderPayments,
+  getOrderPaymentSummary,
+  getClientResumen360
 } from "./store.js"
 
-import { validate, clientSchema, productSchema, orderSchema } from "./schemas.js"
+import { validate, clientSchema, productSchema, orderSchema, abonoSchema } from "./schemas.js"
 import config from "./config.js"
 
 const app = express()
@@ -547,6 +551,34 @@ app.get("/pedidos/:id/audit", auth, (req, res) => {
   const items = listOrderAuditDetailed(id, { limit: l, offset })
   const total = countOrderAudit(id)
   res.json({ items, total })
+})
+
+app.get("/clientes/:id/resumen-360", auth, (req, res) => {
+  const id = Number(req.params.id)
+  const resumen = getClientResumen360(id)
+  if (!resumen) return res.status(404).json({ error: "not_found" })
+  res.json(resumen)
+})
+
+app.post("/pedidos/:id/abonos", auth, allowRoles("Admin", "Operador"), validate(abonoSchema), (req, res) => {
+  const id = Number(req.params.id)
+  try {
+    const result = addOrderPayment(id, req.body, req.user?.sub)
+    res.status(201).json(result)
+  } catch (e) {
+    if (e.message === "Pedido no encontrado") {
+      return res.status(404).json({ error: "not_found" })
+    }
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.get("/pedidos/:id/abonos", auth, (req, res) => {
+  const id = Number(req.params.id)
+  const pedido = getOrder(id)
+  if (!pedido) return res.status(404).json({ error: "not_found" })
+  const paymentsData = getOrderPayments(id)
+  res.json(paymentsData)
 })
 
 // removed legacy KPIs route

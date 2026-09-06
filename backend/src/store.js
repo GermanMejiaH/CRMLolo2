@@ -346,7 +346,8 @@ function listOrders(filters = {}) {
 function listOrdersWithNames(filters = {}) {
   const { cliente, estado, from, to, metodoPago } = filters
   let sql = `
-    SELECT o.*, c.nombre AS clienteNombre, p.nombre AS productoNombre
+    SELECT o.*, c.nombre AS clienteNombre, p.nombre AS productoNombre,
+           COALESCE((SELECT SUM(monto) FROM order_payments WHERE orderId = o.id), 0) AS totalPagado
     FROM orders o
     LEFT JOIN clients c ON c.id = o.clienteId
     LEFT JOIN products p ON p.id = o.productoId
@@ -413,7 +414,12 @@ function listSalesSeries(filters = {}) {
 }
 
 function getOrder(id) {
-  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id)
+  const order = db
+    .prepare(
+      `SELECT o.*, COALESCE((SELECT SUM(monto) FROM order_payments WHERE orderId = o.id), 0) AS totalPagado
+       FROM orders o WHERE o.id = ?`
+    )
+    .get(id)
   if (!order) return null
   const items = db
     .prepare(
@@ -782,6 +788,117 @@ function deleteClientProductPrice(clientId, productId) {
   return true
 }
 
+function addOrderPayment(orderId, { monto, metodoPago, nota }, userId) {
+  const order = getOrder(orderId)
+  if (!order) throw new Error("Pedido no encontrado")
+  const date = Date.now()
+  const metodo = metodoPago && String(metodoPago).trim() ? String(metodoPago).trim() : "Efectivo"
+  const info = db
+    .prepare("INSERT INTO order_payments (orderId, monto, metodoPago, nota, date, userId) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(Number(orderId), Number(monto), metodo, nota || null, date, userId || null)
+
+  addOrderAuditEntry(
+    orderId,
+    userId,
+    `Abono de $${Number(monto).toLocaleString("es-CO")} (${metodo})${nota ? `: ${nota}` : ""}`
+  )
+
+  const payment = db.prepare("SELECT * FROM order_payments WHERE id = ?").get(info.lastInsertRowid)
+  const summary = getOrderPaymentSummary(orderId)
+  return { payment, ...summary }
+}
+
+function getOrderPayments(orderId) {
+  const paymentsList = db
+    .prepare(
+      `SELECT op.*, u.name as userName
+       FROM order_payments op
+       LEFT JOIN users u ON u.id = op.userId
+       WHERE op.orderId = ?
+       ORDER BY op.date DESC`
+    )
+    .all(Number(orderId))
+  const summary = getOrderPaymentSummary(orderId)
+  return { items: paymentsList, ...summary }
+}
+
+function getOrderPaymentSummary(orderId) {
+  const order = getOrder(orderId)
+  if (!order) return { total: 0, totalPagado: 0, saldoPendiente: 0, estadoPago: "Pendiente" }
+  const res = db
+    .prepare("SELECT COALESCE(SUM(monto), 0) as totalPagado FROM order_payments WHERE orderId = ?")
+    .get(Number(orderId))
+  const totalPagado = Number(res?.totalPagado || 0)
+  const total = Number(order.total || 0)
+  const saldoPendiente = Math.max(0, total - totalPagado)
+  let estadoPago = "Pendiente"
+  if (totalPagado >= total && total > 0) estadoPago = "Pagado"
+  else if (totalPagado > 0) estadoPago = "Parcial"
+
+  return { total, totalPagado, saldoPendiente, estadoPago }
+}
+
+function getClientResumen360(clienteId) {
+  const client = getClient(clienteId)
+  if (!client) return null
+  const stats = db
+    .prepare(
+      `SELECT COUNT(id) as totalPedidos, COALESCE(SUM(total), 0) as totalComprado
+       FROM orders
+       WHERE clienteId = ? AND estado != 'Cancelado'`
+    )
+    .get(Number(clienteId))
+
+  const abonos = db
+    .prepare(
+      `SELECT COALESCE(SUM(op.monto), 0) as totalAbonado
+       FROM order_payments op
+       JOIN orders o ON op.orderId = o.id
+       WHERE o.clienteId = ? AND o.estado != 'Cancelado'`
+    )
+    .get(Number(clienteId))
+
+  const totalComprado = Number(stats?.totalComprado || 0)
+  const totalAbonado = Number(abonos?.totalAbonado || 0)
+  const saldoPendiente = Math.max(0, totalComprado - totalAbonado)
+  const totalPedidos = Number(stats?.totalPedidos || 0)
+  const ticketPromedio = totalPedidos > 0 ? Math.round(totalComprado / totalPedidos) : 0
+
+  const topProducts = db
+    .prepare(
+      `SELECT p.id, p.nombre, SUM(oi.cantidad) as totalUnidades, SUM(oi.subtotal) as totalInvertido
+       FROM order_items oi
+       JOIN orders o ON oi.orderId = o.id
+       JOIN products p ON oi.productoId = p.id
+       WHERE o.clienteId = ? AND o.estado != 'Cancelado'
+       GROUP BY p.id
+       ORDER BY totalUnidades DESC
+       LIMIT 5`
+    )
+    .all(Number(clienteId))
+
+  const recentOrders = db
+    .prepare(
+      `SELECT o.*, COALESCE((SELECT SUM(monto) FROM order_payments WHERE orderId = o.id), 0) as totalPagado
+       FROM orders o
+       WHERE o.clienteId = ?
+       ORDER BY o.createdAt DESC
+       LIMIT 5`
+    )
+    .all(Number(clienteId))
+
+  return {
+    client,
+    totalPedidos,
+    totalComprado,
+    totalAbonado,
+    saldoPendiente,
+    ticketPromedio,
+    topProducts,
+    recentOrders
+  }
+}
+
 export {
   payments,
   orderStates,
@@ -820,5 +937,9 @@ export {
   getClientProductPrices,
   getClientProductPrice,
   setClientProductPrice,
-  deleteClientProductPrice
+  deleteClientProductPrice,
+  addOrderPayment,
+  getOrderPayments,
+  getOrderPaymentSummary,
+  getClientResumen360
 }

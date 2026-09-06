@@ -328,4 +328,54 @@ test("Pruebas de integración API Express con base temporal aislada", async (t) 
     const json = await overflowRes.json()
     assert.equal(json.error, "stock")
   })
+
+  await t.test("Registro de abonos y consulta de Ficha 360 del Cliente (API)", async () => {
+    // 1. Crear pedido para test de abonos
+    const orderRes = await fetch(`${baseUrl}/pedidos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        clienteId: 1,
+        productoId: 1,
+        cantidad: 1,
+        precioUnitario: 100000,
+        metodoPago: "Transferencia"
+      })
+    })
+    assert.equal(orderRes.status, 201)
+    const order = await orderRes.json()
+
+    // 2. Registrar abono parcial de 40.000
+    const abonoRes = await fetch(`${baseUrl}/pedidos/${order.id}/abonos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ monto: 40000, metodoPago: "Efectivo", nota: "Abono inicial 40%" })
+    })
+    assert.equal(abonoRes.status, 201)
+    const abonoJson = await abonoRes.json()
+    assert.equal(abonoJson.totalPagado, 40000)
+    assert.equal(abonoJson.saldoPendiente, 60000)
+    assert.equal(abonoJson.estadoPago, "Parcial")
+
+    // 3. Consultar historial de abonos del pedido
+    const listRes = await fetch(`${baseUrl}/pedidos/${order.id}/abonos`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    assert.equal(listRes.status, 200)
+    const listJson = await listRes.json()
+    assert.equal(listJson.items.length, 1)
+    assert.equal(listJson.totalPagado, 40000)
+
+    // 4. Consultar Ficha 360 del Cliente
+    const client360Res = await fetch(`${baseUrl}/clientes/1/resumen-360`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    assert.equal(client360Res.status, 200)
+    const c360 = await client360Res.json()
+    assert.ok(c360.client)
+    assert.ok(typeof c360.totalComprado === "number")
+    assert.ok(typeof c360.saldoPendiente === "number")
+    assert.ok(Array.isArray(c360.topProducts))
+    assert.ok(Array.isArray(c360.recentOrders))
+  })
 })

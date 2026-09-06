@@ -1,5 +1,18 @@
 import React, { useEffect, useState, useMemo } from "react"
-import { ShoppingCart, Search, Plus, RefreshCw, CheckCircle, AlertTriangle, FileText, X, Trash2 } from "lucide-react"
+import {
+  ShoppingCart,
+  Search,
+  Plus,
+  RefreshCw,
+  CheckCircle,
+  AlertTriangle,
+  FileText,
+  X,
+  Trash2,
+  DollarSign,
+  MessageCircle,
+  CreditCard
+} from "lucide-react"
 import { useToast } from "../components/ToastContext"
 import Modal from "../components/Modal"
 import {
@@ -12,7 +25,9 @@ import {
   generateProforma,
   getPedidoAudit,
   getOptions,
-  getClientPrices
+  getClientPrices,
+  getAbonos,
+  crearAbono
 } from "../api/client"
 
 export default function Pedidos({ token }) {
@@ -45,6 +60,83 @@ export default function Pedidos({ token }) {
   const [editOrder, setEditOrder] = useState(null)
   const [editMetodoPago, setEditMetodoPago] = useState("")
   const [editCantidad, setEditCantidad] = useState("")
+
+  // Abonos state
+  const [showAbonos, setShowAbonos] = useState(false)
+  const [abonosOrder, setAbonosOrder] = useState(null)
+  const [abonosItems, setAbonosItems] = useState([])
+  const [abonosSummary, setAbonosSummary] = useState({
+    total: 0,
+    totalPagado: 0,
+    saldoPendiente: 0,
+    estadoPago: "Pendiente"
+  })
+  const [newAbono, setNewAbono] = useState({ monto: "", metodoPago: "Efectivo", nota: "" })
+  const [loadingAbonos, setLoadingAbonos] = useState(false)
+
+  async function openAbonos(order) {
+    setAbonosOrder(order)
+    setShowAbonos(true)
+    setNewAbono({ monto: "", metodoPago: "Efectivo", nota: "" })
+    await loadAbonos(order.id)
+  }
+
+  async function loadAbonos(id) {
+    try {
+      setLoadingAbonos(true)
+      const data = await getAbonos(token, id)
+      setAbonosItems(data.items || [])
+      setAbonosSummary({
+        total: Number(data.total || 0),
+        totalPagado: Number(data.totalPagado || 0),
+        saldoPendiente: Number(data.saldoPendiente || 0),
+        estadoPago: data.estadoPago || "Pendiente"
+      })
+    } catch {
+      addToast("Error al cargar abonos", "error")
+    } finally {
+      setLoadingAbonos(false)
+    }
+  }
+
+  async function handleCrearAbono() {
+    if (!newAbono.monto || Number(newAbono.monto) <= 0) {
+      addToast("Ingresa un monto válido mayor a 0", "warning")
+      return
+    }
+    try {
+      await crearAbono(token, abonosOrder.id, {
+        monto: Number(newAbono.monto),
+        metodoPago: newAbono.metodoPago,
+        nota: newAbono.nota
+      })
+      addToast("Abono registrado con éxito", "success")
+      setNewAbono({ monto: "", metodoPago: "Efectivo", nota: "" })
+      await loadAbonos(abonosOrder.id)
+      load()
+    } catch {
+      addToast("Error al registrar abono", "error")
+    }
+  }
+
+  function openWhatsApp(order) {
+    const cliente = clientes.find((c) => c.id === order.clienteId)
+    if (!cliente || !cliente.telefono) {
+      addToast("El cliente no tiene un número de teléfono registrado", "warning")
+      return
+    }
+    const phoneClean = cliente.telefono.replace(/[^0-9]/g, "")
+    if (!phoneClean) {
+      addToast("Número de teléfono inválido para WhatsApp", "warning")
+      return
+    }
+    const tot = Number(order.total || 0)
+    const pag = Number(order.totalPagado || 0)
+    const sal = Math.max(0, tot - pag)
+    const msg = `Hola ${cliente.nombre}! Te compartimos el resumen de tu pedido #${order.id} en LOLO:\n- Total: $${tot.toLocaleString("es-CO")} COP\n- Abonado: $${pag.toLocaleString("es-CO")} COP\n- Saldo Pendiente: $${sal.toLocaleString("es-CO")} COP\n\n¡Gracias por tu compra!`
+    const url = `https://wa.me/${phoneClean}?text=${encodeURIComponent(msg)}`
+    window.open(url, "_blank")
+  }
 
   // Load client prices when client is selected
   useEffect(() => {
@@ -602,7 +694,8 @@ export default function Pedidos({ token }) {
                   <th className="text-left p-4 text-cyan-400 font-semibold">Productos / Ítems</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Cant. Total</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Total ($)</th>
-                  <th className="text-left p-4 text-cyan-400 font-semibold">Estado</th>
+                  <th className="text-left p-4 text-cyan-400 font-semibold">Estado Pedido</th>
+                  <th className="text-left p-4 text-cyan-400 font-semibold">Estado Pago</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Método Pago</th>
                   <th className="text-left p-4 text-cyan-400 font-semibold">Acciones</th>
                 </tr>
@@ -610,7 +703,7 @@ export default function Pedidos({ token }) {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="text-center p-8 text-gray-400">
+                    <td colSpan="9" className="text-center p-8 text-gray-400">
                       No hay pedidos
                     </td>
                   </tr>
@@ -636,30 +729,51 @@ export default function Pedidos({ token }) {
                         <td className="p-4">
                           <EstadoBadge estado={x.estado} />
                         </td>
+                        <td className="p-4">
+                          <EstadoPagoBadge total={x.total} totalPagado={x.totalPagado} />
+                        </td>
                         <td className="p-4 text-gray-300">{x.metodoPago || "Efectivo"}</td>
                         <td className="p-4">
-                          <div className="flex gap-2">
+                          <div className="flex gap-1.5 flex-wrap">
+                            {x.estado !== "Completado" && x.estado !== "Cancelado" && (
+                              <button
+                                className="px-2.5 py-1 border border-green-500 text-green-400 text-xs rounded hover:bg-green-500/10 transition-colors"
+                                onClick={() => completar(x.id)}
+                              >
+                                Completar
+                              </button>
+                            )}
                             <button
-                              className="px-3 py-1 border border-green-500 text-green-400 rounded hover:bg-green-500/10 transition-colors"
-                              onClick={() => completar(x.id)}
+                              className="px-2.5 py-1 border border-emerald-500 text-emerald-400 text-xs rounded hover:bg-emerald-500/10 transition-colors flex items-center gap-1"
+                              onClick={() => openAbonos(x)}
+                              title="Registrar / Ver Abonos"
                             >
-                              Completar
+                              <DollarSign className="w-3.5 h-3.5" />
+                              Abonos
                             </button>
                             <button
-                              className="px-3 py-1 border border-cyan-500 text-cyan-400 rounded hover:bg-cyan-500/10 transition-colors"
+                              className="px-2.5 py-1 border border-teal-500 text-teal-300 text-xs rounded hover:bg-teal-500/10 transition-colors flex items-center gap-1"
+                              onClick={() => openWhatsApp(x)}
+                              title="Enviar por WhatsApp"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              WhatsApp
+                            </button>
+                            <button
+                              className="px-2.5 py-1 border border-cyan-500 text-cyan-400 text-xs rounded hover:bg-cyan-500/10 transition-colors"
                               onClick={() => proforma(x.id)}
                             >
                               Proforma
                             </button>
                             <button
-                              className="px-3 py-1 border border-yellow-500 text-yellow-400 rounded hover:bg-yellow-500/10 transition-colors"
+                              className="px-2.5 py-1 border border-yellow-500 text-yellow-400 text-xs rounded hover:bg-yellow-500/10 transition-colors"
                               onClick={() => openAudit(x)}
                             >
                               Auditoría
                             </button>
                             {x.estado === "Pendiente" && (
                               <button
-                                className="px-3 py-1 border border-purple-500 text-purple-400 rounded hover:bg-purple-500/10 transition-colors"
+                                className="px-2.5 py-1 border border-purple-500 text-purple-400 text-xs rounded hover:bg-purple-500/10 transition-colors"
                                 onClick={() => {
                                   setEditOrder(x)
                                   setEditMetodoPago(x.metodoPago || "")
@@ -674,7 +788,7 @@ export default function Pedidos({ token }) {
                               onClick={() => eliminar(x.id)}
                               title="Eliminar"
                             >
-                              <Trash2 className="w-5 h-5" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -694,33 +808,50 @@ export default function Pedidos({ token }) {
             Pedido #{auditOrder?.id || ""} — Cliente{" "}
             {clientes.find((c) => c.id === auditOrder?.clienteId)?.nombre || ""}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-slate-300">
-                  <th className="p-2 text-left">Fecha</th>
-                  <th className="p-2 text-left">Observación</th>
-                  <th className="p-2 text-left">Usuario</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditItems.length === 0 ? (
-                  <tr>
-                    <td className="p-3 text-gray-400" colSpan="3">
-                      Sin auditoría
-                    </td>
-                  </tr>
-                ) : (
-                  auditItems.map((a) => (
-                    <tr key={a.id} className="border-t border-slate-700">
-                      <td className="p-2 text-gray-300">{new Date(a.date).toLocaleString()}</td>
-                      <td className="p-2 text-gray-300">{a.observation || ""}</td>
-                      <td className="p-2 text-gray-300">{a.userName || a.userId || ""}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="relative pl-6 border-l-2 border-cyan-500/30 space-y-4 my-4">
+            {auditItems.length === 0 ? (
+              <p className="text-gray-400 text-sm">Sin eventos de auditoría registrados</p>
+            ) : (
+              auditItems.map((a) => {
+                const obs = String(a.observation || "").toLowerCase()
+                const isCreated = obs.includes("creado")
+                const isCompleted = obs.includes("completado")
+                const isUpdated = obs.includes("actualizado")
+
+                return (
+                  <div key={a.id} className="relative group">
+                    <div
+                      className={`absolute -left-[31px] top-0 w-6 h-6 rounded-full border flex items-center justify-center ${
+                        isCompleted
+                          ? "bg-green-500/20 border-green-500 text-green-400"
+                          : isCreated
+                            ? "bg-cyan-500/20 border-cyan-500 text-cyan-400"
+                            : isUpdated
+                              ? "bg-yellow-500/20 border-yellow-500 text-yellow-400"
+                              : "bg-purple-500/20 border-purple-500 text-purple-400"
+                      }`}
+                    >
+                      {isCompleted ? (
+                        <CheckCircle className="w-3.5 h-3.5" />
+                      ) : isCreated ? (
+                        <Plus className="w-3.5 h-3.5" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                    <div className="bg-slate-900/80 border border-slate-700/60 rounded-lg p-3 shadow-md">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-semibold text-white capitalize">{a.observation || "Evento"}</span>
+                        <span className="text-slate-400">{new Date(a.date).toLocaleString("es-CO")}</span>
+                      </div>
+                      <p className="text-xs text-cyan-400 font-medium">
+                        Usuario: <span className="text-gray-300">{a.userName || `ID #${a.userId || "Sistema"}`}</span>
+                      </p>
+                    </div>
+                  </div>
+                )
+              })
+            )}
           </div>
           <div className="flex items-center justify-between mt-2">
             <div className="text-gray-400">
@@ -822,7 +953,158 @@ export default function Pedidos({ token }) {
           </div>
         </div>
       </Modal>
+
+      <Modal
+        isOpen={showAbonos}
+        onClose={() => setShowAbonos(false)}
+        title={`Abonos — Pedido #${abonosOrder?.id || ""}`}
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="bg-slate-900/60 border border-cyan-500/30 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-400">Total Pedido</p>
+              <p className="text-xl font-bold text-white">${abonosSummary.total.toLocaleString("es-CO")}</p>
+            </div>
+            <div className="bg-slate-900/60 border border-emerald-500/30 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-400">Total Abonado</p>
+              <p className="text-xl font-bold text-emerald-400">${abonosSummary.totalPagado.toLocaleString("es-CO")}</p>
+            </div>
+            <div className="bg-slate-900/60 border border-rose-500/30 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-400">Saldo Pendiente</p>
+              <p className="text-xl font-bold text-rose-400">${abonosSummary.saldoPendiente.toLocaleString("es-CO")}</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/40 border border-slate-700/60 rounded-lg p-4 space-y-3">
+            <h4 className="text-sm font-semibold text-cyan-400 flex items-center gap-1.5">
+              <Plus className="w-4 h-4" /> Registrar Nuevo Abono
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-gray-300 mb-1">Monto ($)</label>
+                <input
+                  type="number"
+                  min="1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="Monto a abonar"
+                  value={newAbono.monto}
+                  onChange={(e) => setNewAbono({ ...newAbono, monto: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-300 mb-1">Método de Pago</label>
+                <select
+                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                  value={newAbono.metodoPago}
+                  onChange={(e) => setNewAbono({ ...newAbono, metodoPago: e.target.value })}
+                >
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Tarjeta">Tarjeta</option>
+                  <option value="Nequi">Nequi</option>
+                  <option value="Bancolombia">Bancolombia</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-300 mb-1">Nota / Ref (opcional)</label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="Ej: Comprobante #1234"
+                  value={newAbono.nota}
+                  onChange={(e) => setNewAbono({ ...newAbono, nota: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={handleCrearAbono}
+                className="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded text-xs font-semibold shadow transition-all"
+              >
+                Guardar Abono
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-semibold text-gray-300 mb-2">Historial de Abonos</h4>
+            {loadingAbonos ? (
+              <p className="text-xs text-gray-400">Cargando abonos...</p>
+            ) : abonosItems.length === 0 ? (
+              <p className="text-xs text-gray-400 py-2">No se han registrado abonos para este pedido.</p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto space-y-2">
+                {abonosItems.map((ab) => (
+                  <div
+                    key={ab.id}
+                    className="bg-slate-900/80 border border-slate-700/60 rounded p-2.5 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <p className="font-semibold text-emerald-400">
+                        ${Number(ab.monto || 0).toLocaleString("es-CO")} ({ab.metodoPago || "Efectivo"})
+                      </p>
+                      <p className="text-slate-400 text-[11px]">
+                        {new Date(ab.date).toLocaleString("es-CO")} — {ab.userName || "Sistema"}
+                      </p>
+                    </div>
+                    {ab.nota && (
+                      <span className="text-gray-300 bg-slate-800 px-2 py-0.5 rounded text-[11px]">{ab.nota}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
     </>
+  )
+}
+
+function EstadoBadge({ estado }) {
+  const isCompleted = estado === "Completado"
+  const isCanceled = estado === "Cancelado"
+  return (
+    <span
+      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+        isCompleted
+          ? "bg-green-500/20 text-green-400 border border-green-500/30"
+          : isCanceled
+            ? "bg-red-500/20 text-red-400 border border-red-500/30"
+            : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+      }`}
+    >
+      {estado}
+    </span>
+  )
+}
+
+function EstadoPagoBadge({ total, totalPagado }) {
+  const pagado = Number(totalPagado || 0)
+  const tot = Number(total || 0)
+  const saldo = Math.max(0, tot - pagado)
+  const isPaid = pagado >= tot && tot > 0
+  const isPartial = pagado > 0 && !isPaid
+
+  if (isPaid) {
+    return (
+      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+        Pagado
+      </span>
+    )
+  }
+  if (isPartial) {
+    return (
+      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+        Parcial (${saldo.toLocaleString()})
+      </span>
+    )
+  }
+  return (
+    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+      Pendiente
+    </span>
   )
 }
 function setToday() {

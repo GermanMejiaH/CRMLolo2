@@ -1,7 +1,14 @@
 import React, { useState } from "react"
 import { FileSpreadsheet, RefreshCw, Calendar, BarChart3 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
-import { downloadVentasCSV, getOptions, getReportKpis, getReportSeries, getPedidosFiltered } from "../api/client"
+import {
+  downloadVentasCSV,
+  getOptions,
+  getReportKpis,
+  getReportSeries,
+  getPedidosFiltered,
+  getClientes
+} from "../api/client"
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 import * as XLSX from "xlsx"
 
@@ -11,6 +18,8 @@ export default function Reportes({ token }) {
   const [to, setTo] = useState("")
   const [estado, setEstado] = useState("")
   const [metodoPago, setMetodoPago] = useState("")
+  const [cliente, setCliente] = useState("")
+  const [clientes, setClientes] = useState([])
   const [orderStates, setOrderStates] = useState([])
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(false)
@@ -68,7 +77,7 @@ export default function Reportes({ token }) {
         return
       }
       setLoading(true)
-      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago, delim })
+      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago, cliente, delim })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
@@ -92,7 +101,7 @@ export default function Reportes({ token }) {
         return
       }
       setLoadingXlsx(true)
-      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago, delim })
+      const blob = await downloadVentasCSV(token, { from, to, estado, metodoPago, cliente, delim })
       const text = await blob.text()
       const lines = text
         .replace(/^\uFEFF/, "")
@@ -118,11 +127,13 @@ export default function Reportes({ token }) {
         }
       }
       XLSX.utils.book_append_sheet(wb, sheetDetalle, "Detalle")
+      const selClient = clientes.find((c) => c.id === Number(cliente))
       const kpiRows = [
         ["Filtro desde", from || ""],
         ["Filtro hasta", to || ""],
         ["Estado", estado || "Todos"],
         ["Método de pago", metodoPago || "Todos"],
+        ["Cliente", selClient ? selClient.nombre : "Todos"],
         ["Total Ventas", kpis.totalVentas],
         ["Pedidos", kpis.pedidos],
         ["Completados", kpis.completados],
@@ -151,9 +162,10 @@ export default function Reportes({ token }) {
   async function loadOptions() {
     if (!token) return
     try {
-      const j = await getOptions(token)
+      const [j, c] = await Promise.all([getOptions(token), getClientes(token)])
       setOrderStates(Array.isArray(j.orderStates) ? j.orderStates : [])
       setPayments(Array.isArray(j.payments) ? j.payments : [])
+      setClientes(Array.isArray(c) ? c : c.items || [])
     } catch {}
   }
 
@@ -162,7 +174,7 @@ export default function Reportes({ token }) {
     try {
       if (from && to && new Date(from) > new Date(to)) return
       setLoadingKpis(true)
-      const j = await getReportKpis(token, { from, to, estado, metodoPago })
+      const j = await getReportKpis(token, { from, to, estado, metodoPago, cliente })
       setKpis(j)
     } catch {
     } finally {
@@ -175,7 +187,7 @@ export default function Reportes({ token }) {
     try {
       if (from && to && new Date(from) > new Date(to)) return
       setLoadingSeries(true)
-      const orders = await getPedidosFiltered(token, { from, to, estado, metodoPago })
+      const orders = await getPedidosFiltered(token, { from, to, estado, metodoPago, cliente })
       const pm =
         Array.isArray(payments) && payments.length > 0
           ? payments
@@ -225,18 +237,20 @@ export default function Reportes({ token }) {
     const t = qs.get("to") || ""
     const e = qs.get("estado") || ""
     const mp = qs.get("metodoPago") || ""
+    const c = qs.get("cliente") || ""
     const g = qs.get("granularity") || "day"
     setFrom(f)
     setTo(t)
     setEstado(e)
     setMetodoPago(mp)
+    setCliente(c)
     setGranularity(g === "month" ? "month" : "day")
     initFromUrl.current = true
   }, [])
   React.useEffect(() => {
     loadKpis()
     loadSeries()
-  }, [token, from, to, estado, metodoPago, granularity, payments])
+  }, [token, from, to, estado, metodoPago, cliente, granularity, payments])
   React.useEffect(() => {
     if (Number(kpis.totalVentas || 0) > 0 && (!series || series.length === 0)) {
       loadSeries()
@@ -248,10 +262,11 @@ export default function Reportes({ token }) {
     if (to) qs.set("to", to)
     if (estado) qs.set("estado", estado)
     if (metodoPago) qs.set("metodoPago", metodoPago)
+    if (cliente) qs.set("cliente", cliente)
     if (granularity && granularity !== "day") qs.set("granularity", granularity)
     const url = `${window.location.pathname}?${qs.toString()}`
     window.history.replaceState({}, "", url)
-  }, [from, to, estado, metodoPago, granularity])
+  }, [from, to, estado, metodoPago, cliente, granularity])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
@@ -341,6 +356,21 @@ export default function Reportes({ token }) {
               </select>
             </div>
             <div>
+              <label className="text-gray-300 text-sm mb-1 block">Cliente</label>
+              <select
+                value={cliente}
+                onChange={(e) => setCliente(e.target.value)}
+                className="w-full bg-slate-900/60 border border-cyan-500/30 rounded-lg px-3 py-2 text-gray-300"
+              >
+                <option value="">Todos los clientes</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="text-gray-300 text-sm mb-1 block">Granularidad</label>
               <select
                 value={granularity}
@@ -362,7 +392,7 @@ export default function Reportes({ token }) {
                 <option value="comma">Coma (,)</option>
               </select>
             </div>
-            <div className="md:col-span-2 flex items-center gap-2">
+            <div className="md:col-span-3 flex items-center gap-2">
               <button
                 className="px-3 py-2 border border-cyan-500/30 rounded text-gray-300 bg-slate-900/60"
                 onClick={setToday}
@@ -388,6 +418,7 @@ export default function Reportes({ token }) {
                   setTo("")
                   setEstado("")
                   setMetodoPago("")
+                  setCliente("")
                 }}
               >
                 Limpiar

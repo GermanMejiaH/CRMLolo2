@@ -20,7 +20,8 @@ import {
   RefreshCw,
   ShoppingBag,
   AlertTriangle,
-  Settings
+  Settings,
+  BarChart3
 } from "lucide-react"
 import Modal from "../components/Modal"
 import { useToast } from "../components/ToastContext"
@@ -33,7 +34,8 @@ import {
   getProductos,
   getClientPrices,
   setClientProductPrice,
-  deleteClientProductPrice
+  deleteClientProductPrice,
+  getClienteResumen360
 } from "../api/client"
 
 export default function Clientes({ token }) {
@@ -71,6 +73,25 @@ export default function Clientes({ token }) {
   const [products, setProducts] = useState([])
   const [clientPrices, setClientPrices] = useState([])
   const [priceEditValues, setPriceEditValues] = useState({})
+
+  // Ficha 360 state
+  const [show360, setShow360] = useState(false)
+  const [c360Data, setC360Data] = useState(null)
+  const [loading360, setLoading360] = useState(false)
+
+  async function openResumen360(cliente) {
+    setShow360(true)
+    setC360Data(null)
+    setLoading360(true)
+    try {
+      const res = await getClienteResumen360(token, cliente.id)
+      setC360Data(res)
+    } catch {
+      addToast("Error al cargar Ficha 360° del cliente", "error")
+    } finally {
+      setLoading360(false)
+    }
+  }
 
   useEffect(() => {
     if (token) {
@@ -702,10 +723,18 @@ export default function Clientes({ token }) {
                     </button>
                     <button
                       onClick={() => openCustomPrices(cliente)}
-                      className="px-4 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all"
+                      className="px-3 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all text-xs"
                     >
-                      <Settings className="w-4 h-4" />
+                      <Settings className="w-3.5 h-3.5" />
                       Precios
+                    </button>
+                    <button
+                      onClick={() => openResumen360(cliente)}
+                      className="px-3 bg-teal-600 hover:bg-teal-500 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all text-xs"
+                      title="Ficha 360° del Cliente"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      360°
                     </button>
                     <button
                       onClick={() => handleDelete(cliente.id)}
@@ -815,6 +844,124 @@ export default function Clientes({ token }) {
             Cerrar
           </button>
         </div>
+      </Modal>
+
+      {/* Modal Ficha 360° del Cliente */}
+      <Modal
+        isOpen={show360}
+        onClose={() => setShow360(false)}
+        title={`Ficha 360° — ${c360Data?.client?.nombre || "Cliente"}`}
+      >
+        {loading360 ? (
+          <p className="text-gray-400 p-4 text-center">Cargando métricas del cliente...</p>
+        ) : !c360Data ? (
+          <p className="text-gray-400 p-4 text-center">No se pudo cargar la información del cliente.</p>
+        ) : (
+          <div className="space-y-6">
+            {/* Header info */}
+            <div className="bg-slate-900/60 border border-slate-700/60 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4 text-sm">
+              <div>
+                <p className="text-white font-bold text-lg">{c360Data.client.nombre}</p>
+                <p className="text-slate-400">{c360Data.client.contacto || "Sin contacto principal"}</p>
+              </div>
+              <div className="flex gap-4 text-xs">
+                {c360Data.client.telefono && <span className="text-green-400">📞 {c360Data.client.telefono}</span>}
+                {c360Data.client.email && <span className="text-cyan-400">✉️ {c360Data.client.email}</span>}
+              </div>
+            </div>
+
+            {/* Key KPI Metrics Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-slate-900/60 border border-cyan-500/30 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-400">Total Comprado</p>
+                <p className="text-lg font-bold text-cyan-400">${c360Data.totalComprado.toLocaleString("es-CO")}</p>
+                <p className="text-[11px] text-slate-500">{c360Data.totalPedidos} pedidos</p>
+              </div>
+              <div className="bg-slate-900/60 border border-emerald-500/30 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-400">Total Abonado</p>
+                <p className="text-lg font-bold text-emerald-400">${c360Data.totalAbonado.toLocaleString("es-CO")}</p>
+              </div>
+              <div className="bg-slate-900/60 border border-rose-500/30 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-400">Saldo Pendiente</p>
+                <p className="text-lg font-bold text-rose-400">${c360Data.saldoPendiente.toLocaleString("es-CO")}</p>
+              </div>
+              <div className="bg-slate-900/60 border border-purple-500/30 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-400">Ticket Promedio</p>
+                <p className="text-lg font-bold text-purple-400">${c360Data.ticketPromedio.toLocaleString("es-CO")}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Top Products Purchased */}
+              <div className="bg-slate-900/40 border border-slate-700/60 rounded-lg p-4 space-y-3">
+                <h4 className="text-sm font-semibold text-cyan-400 flex items-center gap-1.5">
+                  <ShoppingBag className="w-4 h-4" /> Top Productos Más Comprados
+                </h4>
+                {c360Data.topProducts.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2">Sin registros de productos comprados.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {c360Data.topProducts.map((p) => (
+                      <div
+                        key={p.id}
+                        className="bg-slate-900/80 border border-slate-700/60 rounded p-2 flex items-center justify-between text-xs"
+                      >
+                        <div>
+                          <p className="font-semibold text-white">{p.nombre}</p>
+                          <p className="text-slate-400 text-[11px]">{p.totalUnidades} unidades adquiridas</p>
+                        </div>
+                        <span className="text-cyan-400 font-bold">
+                          ${Number(p.totalInvertido || 0).toLocaleString("es-CO")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Orders */}
+              <div className="bg-slate-900/40 border border-slate-700/60 rounded-lg p-4 space-y-3">
+                <h4 className="text-sm font-semibold text-purple-400 flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4" /> Historial de Pedidos Recientes
+                </h4>
+                {c360Data.recentOrders.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2">Sin pedidos registrados.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {c360Data.recentOrders.map((o) => {
+                      const tot = Number(o.total || 0)
+                      const pag = Number(o.totalPagado || 0)
+                      const isPaid = pag >= tot && tot > 0
+                      return (
+                        <div
+                          key={o.id}
+                          className="bg-slate-900/80 border border-slate-700/60 rounded p-2 flex items-center justify-between text-xs"
+                        >
+                          <div>
+                            <p className="font-semibold text-white">
+                              Pedido #{o.id} — {o.estado}
+                            </p>
+                            <p className="text-slate-400 text-[11px]">
+                              {new Date(o.createdAt).toLocaleDateString("es-CO")}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-cyan-400 font-bold">${tot.toLocaleString("es-CO")}</p>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded ${isPaid ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}
+                            >
+                              {isPaid ? "Pagado" : `Pend: $${(tot - pag).toLocaleString("es-CO")}`}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

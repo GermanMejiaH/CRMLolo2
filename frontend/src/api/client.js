@@ -185,3 +185,19 @@ export function deleteClientProductPrice(token, clientId, productId) {
     token
   })
 }
+
+export function getAbonos(token, orderId) {
+  return request(`/pedidos/${orderId}/abonos`, { token })
+}
+
+export function crearAbono(token, orderId, payload) {
+  return request(`/pedidos/${orderId}/abonos`, {
+    method: "POST",
+    token,
+    body: payload
+  })
+}
+
+export function getClienteResumen360(token, clienteId) {
+  return request(`/clientes/${clienteId}/resumen-360`, { token })
+}

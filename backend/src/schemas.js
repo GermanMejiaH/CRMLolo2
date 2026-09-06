@@ -77,6 +77,15 @@ export const orderSchema = z
   )
 
 /**
+ * Schema de validación para registro de abono / pago parcial a pedido
+ */
+export const abonoSchema = z.object({
+  monto: z.coerce.number().positive("El monto abonado debe ser mayor a 0"),
+  metodoPago: z.string().optional().default("Efectivo"),
+  nota: z.string().nullable().optional()
+})
+
+/**
  * Middleware Express reutilizable para validar el cuerpo de la petición (req.body)
  * @param {z.ZodSchema} schema - Schema Zod a evaluar
  */
