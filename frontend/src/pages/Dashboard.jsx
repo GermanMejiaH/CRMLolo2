@@ -1,6 +1,20 @@
 import React, { useEffect, useState } from "react"
 import { TrendingUp, ShoppingCart, Users, Package, DollarSign, AlertTriangle, Calendar, Activity } from "lucide-react"
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from "recharts"
 import { getDashboard } from "../api/client"
 
 export default function Dashboard({ token = "demo-token" }) {
@@ -11,7 +25,7 @@ export default function Dashboard({ token = "demo-token" }) {
     ticketPromedio: 0,
     stockBajo: 0
   })
-  
+
   const [ventasMensuales, setVentasMensuales] = useState([])
   const [ventasDiarias, setVentasDiarias] = useState([])
   const [topClientes, setTopClientes] = useState([])
@@ -31,10 +45,13 @@ export default function Dashboard({ token = "demo-token" }) {
       setVentasDiarias(data.ventasDiarias)
       setTopClientes(data.topClientes)
 
-      const paymentColors = { "Efectivo": "#06b6d4", "Transferencia": "#a855f7", "Crédito": "#eab308" }
+      const paymentColors = { Efectivo: "#06b6d4", Transferencia: "#a855f7", Crédito: "#eab308" }
       {
-        const totalPayments = (Array.isArray(data.metodosPago) ? data.metodosPago : []).reduce((s, x) => s + Number(x.value || 0), 0)
-        const items = (Array.isArray(data.metodosPago) ? data.metodosPago : []).map(m => ({
+        const totalPayments = (Array.isArray(data.metodosPago) ? data.metodosPago : []).reduce(
+          (s, x) => s + Number(x.value || 0),
+          0
+        )
+        const items = (Array.isArray(data.metodosPago) ? data.metodosPago : []).map((m) => ({
           ...m,
           percent: totalPayments > 0 ? Math.round((Number(m.value || 0) / totalPayments) * 100) : 0,
           color: paymentColors[m.name] || "#ef4444"
@@ -42,10 +59,13 @@ export default function Dashboard({ token = "demo-token" }) {
         setMetodosPago(items)
       }
 
-      const stateColors = { "Completado": "#10b981", "Pendiente": "#eab308", "Cancelado": "#ef4444" }
+      const stateColors = { Completado: "#10b981", Pendiente: "#eab308", Cancelado: "#ef4444" }
       {
-        const totalStates = (Array.isArray(data.estadoPedidos) ? data.estadoPedidos : []).reduce((s, x) => s + Number(x.value || 0), 0)
-        const items = (Array.isArray(data.estadoPedidos) ? data.estadoPedidos : []).map(e => ({
+        const totalStates = (Array.isArray(data.estadoPedidos) ? data.estadoPedidos : []).reduce(
+          (s, x) => s + Number(x.value || 0),
+          0
+        )
+        const items = (Array.isArray(data.estadoPedidos) ? data.estadoPedidos : []).map((e) => ({
           ...e,
           percent: totalStates > 0 ? Math.round((Number(e.value || 0) / totalStates) * 100) : 0,
           color: stateColors[e.name] || "#94a3b8"
@@ -58,10 +78,10 @@ export default function Dashboard({ token = "demo-token" }) {
   }
 
   const formatCurrency = (value) => {
-    return new Intl.NumberFormat('es-CO', { 
-      style: 'currency', 
-      currency: 'COP',
-      minimumFractionDigits: 0 
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
+      minimumFractionDigits: 0
     }).format(value)
   }
 
@@ -91,7 +111,7 @@ export default function Dashboard({ token = "demo-token" }) {
           <div className="flex items-center gap-2 bg-slate-800/50 border border-cyan-500/30 rounded-lg px-4 py-2">
             <Calendar className="w-5 h-5 text-cyan-400" />
             <span className="text-gray-300 capitalize">
-              {new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+              {new Date().toLocaleDateString("es-ES", { month: "long", year: "numeric" })}
             </span>
           </div>
         </div>
@@ -155,12 +175,12 @@ export default function Dashboard({ token = "demo-token" }) {
               <XAxis dataKey="mes" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
               <Tooltip content={<CustomTooltip />} />
-              <Line 
-                type="monotone" 
-                dataKey="ventas" 
-                stroke="#06b6d4" 
+              <Line
+                type="monotone"
+                dataKey="ventas"
+                stroke="#06b6d4"
                 strokeWidth={3}
-                dot={{ fill: '#06b6d4', r: 5 }}
+                dot={{ fill: "#06b6d4", r: 5 }}
                 activeDot={{ r: 8 }}
               />
             </LineChart>
@@ -182,8 +202,8 @@ export default function Dashboard({ token = "demo-token" }) {
               <Bar dataKey="ventas" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
               <defs>
                 <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#a855f7" stopOpacity={1}/>
-                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0.8}/>
+                  <stop offset="0%" stopColor="#a855f7" stopOpacity={1} />
+                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0.8} />
                 </linearGradient>
               </defs>
             </BarChart>
@@ -201,7 +221,10 @@ export default function Dashboard({ token = "demo-token" }) {
           </h3>
           <div className="space-y-3">
             {topClientes.map((cliente, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg border border-green-500/20 hover:border-green-500/50 transition-all">
+              <div
+                key={idx}
+                className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg border border-green-500/20 hover:border-green-500/50 transition-all"
+              >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold">
                     {idx + 1}
@@ -242,7 +265,9 @@ export default function Dashboard({ token = "demo-token" }) {
             {metodosPago.map((metodo, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: metodo.color }}></div>
-                <span className="text-gray-300 text-sm">{metodo.name} ({metodo.percent}%)</span>
+                <span className="text-gray-300 text-sm">
+                  {metodo.name} ({metodo.percent}%)
+                </span>
               </div>
             ))}
           </div>

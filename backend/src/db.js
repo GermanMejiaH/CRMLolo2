@@ -1,27 +1,21 @@
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import Database from 'better-sqlite3'
+import fs from "fs"
+import path from "path"
+import Database from "better-sqlite3"
+import config from "./config.js"
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-let dbPath = ""
-const envDbPath = process.env.DB_PATH && String(process.env.DB_PATH).trim()
-const envStorageDir = process.env.STORAGE_DIR && String(process.env.STORAGE_DIR).trim()
-if (envDbPath) {
-  const dir = path.dirname(envDbPath)
-  fs.mkdirSync(dir, { recursive: true })
-  dbPath = envDbPath
-} else {
-  const storageRoot = envStorageDir || path.join(__dirname, '..', 'storage')
-  fs.mkdirSync(storageRoot, { recursive: true })
-  dbPath = path.join(storageRoot, 'data.db')
+const dbPath = config.dbPath
+const dir = path.dirname(dbPath)
+fs.mkdirSync(dir, { recursive: true })
+
+if (!config.isTest) {
+  try {
+    console.log("DB path:", dbPath)
+  } catch {}
 }
 
-try { console.log("DB path:", dbPath) } catch {}
-
 const db = new Database(dbPath)
-db.pragma('journal_mode = WAL')
-db.pragma('foreign_keys = ON')
+db.pragma("journal_mode = WAL")
+db.pragma("foreign_keys = ON")
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -129,7 +123,7 @@ function fkList(table) {
   return db.prepare(`PRAGMA foreign_key_list(${table})`).all()
 }
 
-if (fkList('orders').length === 0 || fkList('order_audit').length === 0 || fkList('proformas').length === 0) {
+if (fkList("orders").length === 0 || fkList("order_audit").length === 0 || fkList("proformas").length === 0) {
   const migrate = db.transaction(() => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS orders_new (
@@ -198,10 +192,10 @@ if (fkList('orders').length === 0 || fkList('order_audit').length === 0 || fkLis
 export default db
 function hasColumn(table, name) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all()
-  return cols.some(c => c.name === name)
+  return cols.some((c) => c.name === name)
 }
 
-if (!hasColumn('products', 'active')) {
+if (!hasColumn("products", "active")) {
   db.exec("ALTER TABLE products ADD COLUMN active INTEGER")
   db.exec("UPDATE products SET active = 1 WHERE active IS NULL")
 }

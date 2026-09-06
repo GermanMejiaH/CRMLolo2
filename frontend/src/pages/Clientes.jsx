@@ -1,8 +1,40 @@
 import React, { useEffect, useState } from "react"
-import { Users, Plus, Search, Mail, Phone, MapPin, DollarSign, Calendar, Edit, Trash2, X, Filter, Download, Save, ChevronLeft, ChevronRight, Check, RefreshCw, ShoppingBag, AlertTriangle, Settings } from "lucide-react"
+import {
+  Users,
+  Plus,
+  Search,
+  Mail,
+  Phone,
+  MapPin,
+  DollarSign,
+  Calendar,
+  Edit,
+  Trash2,
+  X,
+  Filter,
+  Download,
+  Save,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  RefreshCw,
+  ShoppingBag,
+  AlertTriangle,
+  Settings
+} from "lucide-react"
 import Modal from "../components/Modal"
 import { useToast } from "../components/ToastContext"
-import { getClientes, getClientesPaged, createCliente, updateCliente, desactivarCliente, getProductos, getClientPrices, setClientProductPrice, deleteClientProductPrice } from "../api/client"
+import {
+  getClientes,
+  getClientesPaged,
+  createCliente,
+  updateCliente,
+  desactivarCliente,
+  getProductos,
+  getClientPrices,
+  setClientProductPrice,
+  deleteClientProductPrice
+} from "../api/client"
 
 export default function Clientes({ token }) {
   const { addToast } = useToast()
@@ -22,7 +54,8 @@ export default function Clientes({ token }) {
     maxPrecio: ""
   })
   const [includeInactive, setIncludeInactive] = useState(false)
-  
+  const [hasInactiveRecords, setHasInactiveRecords] = useState(false)
+
   const [formData, setFormData] = useState({
     nombre: "",
     contacto: "",
@@ -32,16 +65,18 @@ export default function Clientes({ token }) {
     precioPersonalizado: "",
     notas: ""
   })
-  
+
   // For custom prices per product
   const [showCustomPrices, setShowCustomPrices] = useState(null)
   const [products, setProducts] = useState([])
   const [clientPrices, setClientPrices] = useState([])
   const [priceEditValues, setPriceEditValues] = useState({})
-  
+
   useEffect(() => {
     if (token) {
-      getProductos(token).then(setProducts).catch(() => {})
+      getProductos(token)
+        .then(setProducts)
+        .catch(() => {})
     }
   }, [token])
 
@@ -57,16 +92,35 @@ export default function Clientes({ token }) {
   async function loadClientes() {
     if (!token) return
     try {
-      const params = { q: debouncedTerm, page, limit, minPrecio: filters.minPrecio || undefined, maxPrecio: filters.maxPrecio || undefined, includeInactive }
+      const params = {
+        q: debouncedTerm,
+        page,
+        limit,
+        minPrecio: filters.minPrecio || undefined,
+        maxPrecio: filters.maxPrecio || undefined,
+        includeInactive
+      }
       const data = await getClientesPaged(token, params)
-      const arr = Array.isArray(data) ? data : (data.items || [])
-      const normalized = arr.map(c => ({
+      const arr = Array.isArray(data) ? data : data.items || []
+      const normalized = arr.map((c) => ({
         ...c,
-        fechaRegistro: new Date(c.createdAt).toISOString().split('T')[0],
+        fechaRegistro: c.createdAt ? new Date(c.createdAt).toISOString().split("T")[0] : "",
         activo: !!c.active
       }))
       setClientes(normalized)
       setTotal(Array.isArray(data) ? normalized.length : Number(data.total || normalized.length))
+
+      if (normalized.length === 0 && !includeInactive) {
+        try {
+          const inactiveData = await getClientesPaged(token, { includeInactive: true, page: 1, limit: 1 })
+          const inactiveTotal = Array.isArray(inactiveData) ? inactiveData.length : Number(inactiveData.total || 0)
+          setHasInactiveRecords(inactiveTotal > 0)
+        } catch {
+          setHasInactiveRecords(false)
+        }
+      } else {
+        setHasInactiveRecords(false)
+      }
     } catch {
       addToast("Error al cargar clientes", "error")
     }
@@ -86,7 +140,7 @@ export default function Clientes({ token }) {
         email: formData.email || null,
         direccion: formData.direccion || null,
         precioPersonalizado: formData.precioPersonalizado === "" ? null : Number(formData.precioPersonalizado),
-        notas: formData.notas || null,
+        notas: formData.notas || null
       }
       if (editingId) {
         await updateCliente(token, editingId, payload)
@@ -154,7 +208,7 @@ export default function Clientes({ token }) {
 
   function exportToCSV() {
     const headers = ["ID", "Nombre", "Contacto", "Teléfono", "Email", "Dirección", "Precio", "Fecha Registro"]
-    const rows = filteredClientes.map(c => [
+    const rows = filteredClientes.map((c) => [
       c.id,
       c.nombre,
       c.contacto,
@@ -164,20 +218,20 @@ export default function Clientes({ token }) {
       c.precioPersonalizado,
       c.fechaRegistro
     ])
-    
-    const csvContent = [headers, ...rows].map(row => row.join(",")).join("\n")
+
+    const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n")
     const blob = new Blob([csvContent], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `clientes_${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `clientes_${new Date().toISOString().split("T")[0]}.csv`
     a.click()
   }
 
   const filteredClientes = clientes
 
   const formatCurrencyCommas = (value) => {
-    const n = new Intl.NumberFormat('en-US', { minimumFractionDigits: 0 }).format(value)
+    const n = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0 }).format(value)
     return `$ ${n}`
   }
 
@@ -187,7 +241,7 @@ export default function Clientes({ token }) {
       const prices = await getClientPrices(token, client.id)
       setClientPrices(prices)
       const initialValues = {}
-      prices.forEach(p => {
+      prices.forEach((p) => {
         initialValues[p.productId] = String(p.price)
       })
       setPriceEditValues(initialValues)
@@ -243,7 +297,7 @@ export default function Clientes({ token }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-sm">Total Clientes</p>
-              <p className="text-3xl font-bold text-cyan-400">{clientes.filter(c => c.activo).length}</p>
+              <p className="text-3xl font-bold text-cyan-400">{clientes.filter((c) => c.activo).length}</p>
             </div>
             <Users className="w-10 h-10 text-cyan-400/50" />
           </div>
@@ -254,11 +308,13 @@ export default function Clientes({ token }) {
             <div>
               <p className="text-gray-400 text-sm">Nuevos (mes)</p>
               <p className="text-3xl font-bold text-green-400">
-                {clientes.filter(c => {
-                  const fecha = new Date(c.fechaRegistro)
-                  const hoy = new Date()
-                  return fecha.getMonth() === hoy.getMonth() && fecha.getFullYear() === hoy.getFullYear()
-                }).length}
+                {
+                  clientes.filter((c) => {
+                    const fecha = new Date(c.fechaRegistro)
+                    const hoy = new Date()
+                    return fecha.getMonth() === hoy.getMonth() && fecha.getFullYear() === hoy.getFullYear()
+                  }).length
+                }
               </p>
             </div>
             <Calendar className="w-10 h-10 text-green-400/50" />
@@ -271,7 +327,9 @@ export default function Clientes({ token }) {
               <p className="text-gray-400 text-sm">Precio Promedio</p>
               <p className="text-3xl font-bold text-purple-400">
                 {formatCurrencyCommas(
-                  clientes.reduce((sum, c) => sum + (c.precioPersonalizado || 0), 0) / clientes.length || 0
+                  Math.round(
+                    clientes.reduce((sum, c) => sum + (c.precioPersonalizado || 0), 0) / (clientes.length || 1)
+                  )
                 )}
               </p>
             </div>
@@ -284,7 +342,7 @@ export default function Clientes({ token }) {
             <div>
               <p className="text-gray-400 text-sm">Con Precio Custom</p>
               <p className="text-3xl font-bold text-yellow-400">
-                {clientes.filter(c => c.precioPersonalizado > 0).length}
+                {clientes.filter((c) => c.precioPersonalizado > 0).length}
               </p>
             </div>
             <DollarSign className="w-10 h-10 text-yellow-400/50" />
@@ -300,7 +358,7 @@ export default function Clientes({ token }) {
             type="text"
             placeholder="Buscar por nombre, email o contacto..."
             value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
           />
         </div>
@@ -308,25 +366,29 @@ export default function Clientes({ token }) {
           onClick={() => setIncludeInactive(!includeInactive)}
           className="flex items-center gap-3 cursor-pointer group select-none px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:border-cyan-500/50 transition-all"
         >
-          <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-            includeInactive 
-              ? 'bg-gradient-to-r from-cyan-500 to-purple-500 border-transparent shadow-lg shadow-cyan-500/20' 
-              : 'border-slate-600 bg-slate-800/50 group-hover:border-cyan-500/50'
-          }`}>
+          <div
+            className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
+              includeInactive
+                ? "bg-gradient-to-r from-cyan-500 to-purple-500 border-transparent shadow-lg shadow-cyan-500/20"
+                : "border-slate-600 bg-slate-800/50 group-hover:border-cyan-500/50"
+            }`}
+          >
             {includeInactive && <Check className="w-3.5 h-3.5 text-white" />}
           </div>
-          <span className={`text-sm font-medium transition-colors ${
-            includeInactive ? 'text-cyan-400' : 'text-gray-400 group-hover:text-gray-300'
-          }`}>
+          <span
+            className={`text-sm font-medium transition-colors ${
+              includeInactive ? "text-cyan-400" : "text-gray-400 group-hover:text-gray-300"
+            }`}
+          >
             Mostrar inactivos
           </span>
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
           className={`px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
-            showFilters 
-              ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-lg shadow-yellow-500/50' 
-              : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
+            showFilters
+              ? "bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-lg shadow-yellow-500/50"
+              : "bg-slate-700 text-gray-300 hover:bg-slate-600"
           }`}
         >
           <Filter className="w-5 h-5" />
@@ -362,14 +424,14 @@ export default function Clientes({ token }) {
               type="number"
               placeholder="Precio mínimo (COP)"
               value={filters.minPrecio}
-              onChange={e => setFilters({ ...filters, minPrecio: e.target.value })}
+              onChange={(e) => setFilters({ ...filters, minPrecio: e.target.value })}
               className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
             />
             <input
               type="number"
               placeholder="Precio máximo (COP)"
               value={filters.maxPrecio}
-              onChange={e => setFilters({ ...filters, maxPrecio: e.target.value })}
+              onChange={(e) => setFilters({ ...filters, maxPrecio: e.target.value })}
               className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
             />
           </div>
@@ -383,11 +445,7 @@ export default function Clientes({ token }) {
       )}
 
       {/* Form Modal */}
-      <Modal
-        isOpen={showForm}
-        onClose={resetForm}
-        title={editingId ? "Editar Cliente" : "Nuevo Cliente"}
-      >
+      <Modal isOpen={showForm} onClose={resetForm} title={editingId ? "Editar Cliente" : "Nuevo Cliente"}>
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
@@ -395,7 +453,7 @@ export default function Clientes({ token }) {
               <input
                 required
                 value={formData.nombre}
-                onChange={e => setFormData({ ...formData, nombre: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
                 className="w-full bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
                 placeholder="Ej: Moto Repuestos SAS"
               />
@@ -405,7 +463,7 @@ export default function Clientes({ token }) {
               <label className="text-gray-300 text-sm mb-1 block">Persona de Contacto</label>
               <input
                 value={formData.contacto}
-                onChange={e => setFormData({ ...formData, contacto: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, contacto: e.target.value })}
                 className="w-full bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
                 placeholder="Ej: Carlos Rodríguez"
               />
@@ -415,7 +473,7 @@ export default function Clientes({ token }) {
               <label className="text-gray-300 text-sm mb-1 block">Teléfono</label>
               <input
                 value={formData.telefono}
-                onChange={e => setFormData({ ...formData, telefono: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
                 className="w-full bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
                 placeholder="+57 300 123 4567"
               />
@@ -426,7 +484,7 @@ export default function Clientes({ token }) {
               <input
                 type="email"
                 value={formData.email}
-                onChange={e => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="w-full bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
                 placeholder="ejemplo@correo.com"
               />
@@ -436,28 +494,28 @@ export default function Clientes({ token }) {
               <label className="text-gray-300 text-sm mb-1 block">Dirección</label>
               <input
                 value={formData.direccion}
-                onChange={e => setFormData({ ...formData, direccion: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
                 className="w-full bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
                 placeholder="Calle 45 #23-12, Medellín"
               />
             </div>
 
             <div className="md:col-span-2">
-            <label className="text-gray-300 text-sm mb-1 block">Precio Personalizado</label>
-            <input
-              type="number"
-              value={formData.precioPersonalizado}
-              onChange={e => setFormData({ ...formData, precioPersonalizado: e.target.value })}
-              className="w-full bg-slate-900/50 border border-purple-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:shadow-lg focus:shadow-purple-500/30 transition-all"
-              placeholder="Precio"
-            />
+              <label className="text-gray-300 text-sm mb-1 block">Precio Personalizado</label>
+              <input
+                type="number"
+                value={formData.precioPersonalizado}
+                onChange={(e) => setFormData({ ...formData, precioPersonalizado: e.target.value })}
+                className="w-full bg-slate-900/50 border border-purple-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:shadow-lg focus:shadow-purple-500/30 transition-all"
+                placeholder="Precio"
+              />
             </div>
 
             <div className="md:col-span-2">
               <label className="text-gray-300 text-sm mb-1 block">Notas</label>
               <textarea
                 value={formData.notas}
-                onChange={e => setFormData({ ...formData, notas: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
                 rows={3}
                 className="w-full bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
                 placeholder="Información adicional sobre el cliente..."
@@ -486,15 +544,32 @@ export default function Clientes({ token }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredClientes.length === 0 ? (
           <div className="col-span-full bg-slate-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-12 text-center">
-            <Users className="w-16 h-16 text-gray-500 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg">
-              {searchTerm || filters.minPrecio || filters.maxPrecio 
-                ? "No se encontraron clientes con esos criterios" 
-                : "No hay clientes registrados"}
-            </p>
+            <Users className="w-16 h-16 text-cyan-400/60 mx-auto mb-4" />
+            {hasInactiveRecords && !includeInactive && !searchTerm && !filters.minPrecio && !filters.maxPrecio ? (
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">No hay clientes activos registrados</h3>
+                <p className="text-gray-400 text-base mb-6 max-w-md mx-auto">
+                  Existen registros de clientes inactivos en el sistema. Puedes visualizar los clientes inactivos
+                  activando la opción correspondiente.
+                </p>
+                <button
+                  onClick={() => setIncludeInactive(true)}
+                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold rounded-lg shadow-lg hover:shadow-cyan-500/50 transition-all transform hover:scale-105 inline-flex items-center gap-2"
+                >
+                  <Filter className="w-5 h-5" />
+                  Ver clientes inactivos
+                </button>
+              </div>
+            ) : (
+              <p className="text-gray-400 text-lg">
+                {searchTerm || filters.minPrecio || filters.maxPrecio
+                  ? "No se encontraron clientes con esos criterios"
+                  : "No hay clientes registrados"}
+              </p>
+            )}
           </div>
         ) : (
-          filteredClientes.map(cliente => (
+          filteredClientes.map((cliente) => (
             <div
               key={cliente.id}
               className="bg-slate-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-6 shadow-xl shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:border-cyan-400/50 transition-all hover:-translate-y-1"
@@ -535,16 +610,15 @@ export default function Clientes({ token }) {
                 )}
                 <div className="flex items-center gap-2 text-gray-300 text-sm">
                   <Calendar className="w-4 h-4 text-yellow-400" />
-                  <span>Desde {new Date(cliente.fechaRegistro).toLocaleDateString('es-CO')}</span>
+                  <span>Desde {new Date(cliente.fechaRegistro).toLocaleDateString("es-CO")}</span>
                 </div>
                 <div className="flex items-center gap-2 text-gray-300 text-sm">
                   <ShoppingBag className="w-4 h-4 text-blue-400" />
                   <span>
-                    Último pedido: {cliente.lastOrderDate 
-                      ? new Date(cliente.lastOrderDate).toLocaleDateString('es-CO') 
-                      : 'N/A'}
+                    Último pedido:{" "}
+                    {cliente.lastOrderDate ? new Date(cliente.lastOrderDate).toLocaleDateString("es-CO") : "N/A"}
                   </span>
-                  {cliente.lastOrderDate && (Date.now() - cliente.lastOrderDate > 14 * 24 * 60 * 60 * 1000) && (
+                  {cliente.lastOrderDate && Date.now() - cliente.lastOrderDate > 14 * 24 * 60 * 60 * 1000 && (
                     <div className="relative group ml-auto">
                       <AlertTriangle className="w-4 h-4 text-red-500 cursor-help" />
                       <span className="absolute bottom-full right-0 mb-2 px-2 py-1 text-xs text-white bg-red-500 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
@@ -561,16 +635,47 @@ export default function Clientes({ token }) {
                     <span className="text-purple-300 text-sm font-semibold">Precio Personalizado</span>
                     {priceEditingId === cliente.id ? (
                       <div className="flex items-center gap-2">
-                        <input type="number" className="w-28 bg-slate-900 border border-slate-700 rounded p-1 text-white" value={priceEditingValue} onChange={e => setPriceEditingValue(e.target.value)} />
-                        <button className="px-2 py-1 bg-green-600 text-white rounded flex items-center gap-1" onClick={async () => {
-                          const v = parseFloat(priceEditingValue)
-                          if (isNaN(v)) { addToast("Precio inválido", "warning"); return }
-                          try { await updateCliente(token, cliente.id, { precioPersonalizado: v }); addToast("Precio actualizado", "success"); setPriceEditingId(null); loadClientes() } catch { addToast("Error al actualizar", "error") }
-                        }}><Save className="w-4 h-4" /> Guardar</button>
-                        <button className="px-2 py-1 bg-slate-700 text-white rounded flex items-center gap-1" onClick={() => setPriceEditingId(null)}><X className="w-4 h-4" /> Cancelar</button>
+                        <input
+                          type="number"
+                          className="w-28 bg-slate-900 border border-slate-700 rounded p-1 text-white"
+                          value={priceEditingValue}
+                          onChange={(e) => setPriceEditingValue(e.target.value)}
+                        />
+                        <button
+                          className="px-2 py-1 bg-green-600 text-white rounded flex items-center gap-1"
+                          onClick={async () => {
+                            const v = parseFloat(priceEditingValue)
+                            if (isNaN(v)) {
+                              addToast("Precio inválido", "warning")
+                              return
+                            }
+                            try {
+                              await updateCliente(token, cliente.id, { precioPersonalizado: v })
+                              addToast("Precio actualizado", "success")
+                              setPriceEditingId(null)
+                              loadClientes()
+                            } catch {
+                              addToast("Error al actualizar", "error")
+                            }
+                          }}
+                        >
+                          <Save className="w-4 h-4" /> Guardar
+                        </button>
+                        <button
+                          className="px-2 py-1 bg-slate-700 text-white rounded flex items-center gap-1"
+                          onClick={() => setPriceEditingId(null)}
+                        >
+                          <X className="w-4 h-4" /> Cancelar
+                        </button>
                       </div>
                     ) : (
-                      <button className="text-purple-400 text-lg font-bold flex items-center gap-2" onClick={() => { setPriceEditingId(cliente.id); setPriceEditingValue(String(cliente.precioPersonalizado || "")) }}>
+                      <button
+                        className="text-purple-400 text-lg font-bold flex items-center gap-2"
+                        onClick={() => {
+                          setPriceEditingId(cliente.id)
+                          setPriceEditingValue(String(cliente.precioPersonalizado || ""))
+                        }}
+                      >
                         {formatCurrencyCommas(cliente.precioPersonalizado)}
                         <Edit className="w-4 h-4" />
                       </button>
@@ -625,11 +730,32 @@ export default function Clientes({ token }) {
         )}
       </div>
       <div className="flex items-center justify-between mt-6">
-        <div className="text-gray-400">Página {page} de {Math.max(1, Math.ceil(total / limit))}</div>
+        <div className="text-gray-400">
+          Página {page} de {Math.max(1, Math.ceil(total / limit))}
+        </div>
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><ChevronLeft className="w-4 h-4" /></button>
-          <button className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50" disabled={page >= Math.max(1, Math.ceil(total / limit))} onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></button>
-          <select className="ml-2 bg-slate-800 border border-slate-700 rounded text-white p-1" value={limit} onChange={e => { setPage(1); setLimit(Number(e.target.value)) }}>
+          <button
+            className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50"
+            disabled={page >= Math.max(1, Math.ceil(total / limit))}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <select
+            className="ml-2 bg-slate-800 border border-slate-700 rounded text-white p-1"
+            value={limit}
+            onChange={(e) => {
+              setPage(1)
+              setLimit(Number(e.target.value))
+            }}
+          >
             <option value={6}>6</option>
             <option value={12}>12</option>
             <option value={24}>24</option>
@@ -637,16 +763,22 @@ export default function Clientes({ token }) {
         </div>
       </div>
 
-      <Modal isOpen={!!showCustomPrices} onClose={() => setShowCustomPrices(null)} title={`Precios Personalizados - ${showCustomPrices?.nombre}`}>
+      <Modal
+        isOpen={!!showCustomPrices}
+        onClose={() => setShowCustomPrices(null)}
+        title={`Precios Personalizados - ${showCustomPrices?.nombre}`}
+      >
         <div className="max-h-96 overflow-y-auto">
-          {products.map(product => {
-            const existingPrice = clientPrices.find(p => p.productId === product.id)
+          {products.map((product) => {
+            const existingPrice = clientPrices.find((p) => p.productId === product.id)
             const currentValue = priceEditValues[product.id] ?? (existingPrice ? String(existingPrice.price) : "")
             return (
               <div key={product.id} className="flex items-center justify-between py-3 border-b border-slate-700/50">
                 <div>
                   <p className="text-white font-medium">{product.nombre}</p>
-                  <p className="text-gray-400 text-sm">Rango: ${product.precioMinimo} - ${product.precioMaximo}</p>
+                  <p className="text-gray-400 text-sm">
+                    Rango: ${product.precioMinimo} - ${product.precioMaximo}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <input

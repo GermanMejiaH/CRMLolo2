@@ -15,11 +15,8 @@ export default function Modal({ isOpen, onClose, title, children }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-      
+      <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity" onClick={onClose} />
+
       {/* Modal Content */}
       <div className="relative w-full max-w-lg bg-slate-900 border border-cyan-500/30 rounded-xl shadow-2xl shadow-cyan-500/10 animate-in zoom-in-95 duration-200">
         {/* Header */}
@@ -27,7 +24,7 @@ export default function Modal({ isOpen, onClose, title, children }) {
           <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400">
             {title}
           </h3>
-          <button 
+          <button
             onClick={onClose}
             className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
@@ -36,9 +33,7 @@ export default function Modal({ isOpen, onClose, title, children }) {
         </div>
 
         {/* Body */}
-        <div className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
-          {children}
-        </div>
+        <div className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar">{children}</div>
       </div>
     </div>
   )

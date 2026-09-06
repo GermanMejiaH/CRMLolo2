@@ -1,13 +1,12 @@
 import express from "express"
 import cors from "cors"
-import dotenv from "dotenv"
 import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
 import fs from "fs"
 import path from "path"
-import { fileURLToPath } from "url"
 import PDFDocument from "pdfkit"
 import nodemailer from "nodemailer"
+import { buildProformaDocument } from "./proformaPdf.js"
 import {
   payments,
   orderStates,
@@ -25,6 +24,7 @@ import {
   deleteProduct,
   listOrders,
   listOrdersWithNames,
+  listSalesSeries,
   getOrder,
   addOrder,
   updateOrder,
@@ -38,6 +38,7 @@ import {
   countOrderAudit,
   getDashboardStats,
   updateUserPasswordByEmail,
+  updateLegacyUserPassword,
   addOrderAuditEntry,
   getClientProductPrices,
   getClientProductPrice,
@@ -45,22 +46,39 @@ import {
   deleteClientProductPrice
 } from "./store.js"
 
-dotenv.config()
+import config from "./config.js"
 
 const app = express()
-const allowedOrigin = process.env.CORS_ORIGIN || ""
-const allowedList = allowedOrigin.split(",").map(s => s.trim()).filter(Boolean)
-if (process.env.NODE_ENV !== "production") {
+
+// Security headers middleware
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff")
+  res.setHeader("X-Frame-Options", "DENY")
+  res.setHeader("X-XSS-Protection", "1; mode=block")
+  res.setHeader("Referrer-Policy", "no-referrer")
+  next()
+})
+
+const allowedOrigin = config.corsOrigin || ""
+const allowedList = allowedOrigin
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
+if (!config.isProduction) {
   ;[
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
     "http://127.0.0.1:4173",
     "http://192.168.*:5173"
-  ].forEach(o => { if (!allowedList.includes(o)) allowedList.push(o) })
+  ].forEach((o) => {
+    if (!allowedList.includes(o)) allowedList.push(o)
+  })
 }
+
 function isOriginAllowed(origin) {
   if (!origin) return true
+  if (config.isProduction && allowedList.length === 0) return false
   for (const rule of allowedList) {
     if (rule === origin) return true
     if (rule.includes("*")) {
@@ -70,39 +88,95 @@ function isOriginAllowed(origin) {
   }
   return false
 }
-app.use(cors(allowedList.length ? { origin: (origin, cb) => cb(null, isOriginAllowed(origin)) } : {}))
-app.use(express.json())
 
-const port = process.env.PORT || 4000
-const jwtSecret = process.env.JWT_SECRET
-if (!jwtSecret) {
-  console.error("JWT_SECRET is required")
-  process.exit(1)
-}
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (isOriginAllowed(origin)) {
+        cb(null, true)
+      } else {
+        cb(new Error("No permitido por CORS"))
+      }
+    }
+  })
+)
+
+app.use(express.json({ limit: "1mb" }))
+app.use(express.urlencoded({ extended: true, limit: "1mb" }))
+
+const port = config.port
+const jwtSecret = config.jwtSecret
 
 // Initialize admin password from env if provided
-if (process.env.ADMIN_PASSWORD) {
-  const adminEmail = process.env.ADMIN_EMAIL || "admin@lolo"
+if (config.adminPassword) {
   try {
-    const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10)
-    updateUserPasswordByEmail(adminEmail, hash)
-    console.log("Admin password updated from env for:", adminEmail)
+    const hash = bcrypt.hashSync(config.adminPassword, 10)
+    updateUserPasswordByEmail(config.adminEmail, hash)
+    if (!config.isTest) console.log("Admin password updated from env for:", config.adminEmail)
   } catch (e) {
-    console.error("Failed to update admin password from env:", e.message)
+    if (!config.isTest) console.error("Failed to update admin password from env:", e.message)
   }
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const storageRoot = (process.env.STORAGE_DIR && String(process.env.STORAGE_DIR).trim())
-  || (process.env.DB_PATH && path.dirname(String(process.env.DB_PATH).trim()))
-  || path.join(__dirname, "..", "storage")
-const proformaDir = path.join(storageRoot, "proformas")
+const proformaDir = config.proformaDir
 fs.mkdirSync(proformaDir, { recursive: true })
-try {
-  console.log("Storage root:", storageRoot)
-  console.log("Proformas dir:", proformaDir)
-} catch {}
+if (!config.isTest) {
+  try {
+    console.log("Storage root:", config.storageRoot)
+    console.log("Proformas dir:", proformaDir)
+  } catch {}
+}
 app.use("/static/proformas", express.static(proformaDir))
+
+// Configurar trust proxy únicamente si está habilitado en configuración
+if (config.trustProxy !== false) {
+  app.set("trust proxy", config.trustProxy)
+}
+
+// Rate limiter para inicios de sesión fallidos con limpieza periódica
+const loginAttempts = new Map()
+const CLEANUP_INTERVAL = 10 * 60 * 1000
+
+setInterval(() => {
+  const now = Date.now()
+  for (const [ip, record] of loginAttempts.entries()) {
+    if (now > record.resetAt) {
+      loginAttempts.delete(ip)
+    }
+  }
+}, CLEANUP_INTERVAL).unref()
+
+function recordFailedLogin(ip) {
+  const now = Date.now()
+  const windowMs = 15 * 60 * 1000
+  const record = loginAttempts.get(ip) || { count: 0, resetAt: now + windowMs }
+  if (now > record.resetAt) {
+    record.count = 1
+    record.resetAt = now + windowMs
+  } else {
+    record.count++
+  }
+  loginAttempts.set(ip, record)
+}
+
+function clearLoginAttempts(ip) {
+  loginAttempts.delete(ip)
+}
+
+function loginRateLimiter(req, res, next) {
+  if (config.isTest && !req.headers["x-test-rate-limit"]) return next()
+  const ip = req.ip || req.socket?.remoteAddress || "unknown"
+  const now = Date.now()
+  const maxAttempts = 5
+  const record = loginAttempts.get(ip)
+  if (record && now <= record.resetAt && record.count >= maxAttempts) {
+    return res.status(429).json({
+      error: "too_many_requests",
+      message: "Demasiados intentos fallidos de inicio de sesión. Por favor intente más tarde."
+    })
+  }
+  next()
+}
 
 function signToken(payload) {
   return jwt.sign(payload, jwtSecret, { expiresIn: "1d" })
@@ -132,17 +206,39 @@ function validEmail(v) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 }
 
-app.post("/auth/login", (req, res) => {
+app.post("/auth/login", loginRateLimiter, (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || "unknown"
   const { email, password } = req.body || {}
+  if (!email || !password) {
+    recordFailedLogin(ip)
+    return res.status(400).json({ error: "invalid_credentials" })
+  }
   const u = users.findByEmail(email)
-  if (!u) return res.status(401).json({ error: "invalid_credentials" })
+  if (!u) {
+    recordFailedLogin(ip)
+    return res.status(401).json({ error: "invalid_credentials" })
+  }
   let ok = false
+  let isLegacy = false
   if (u.passwordHash.startsWith("plain:")) {
+    isLegacy = true
     ok = password === u.passwordHash.replace("plain:", "")
   } else {
     ok = bcrypt.compareSync(password, u.passwordHash)
   }
-  if (!ok) return res.status(401).json({ error: "invalid_credentials" })
+  if (!ok) {
+    recordFailedLogin(ip)
+    return res.status(401).json({ error: "invalid_credentials" })
+  }
+  clearLoginAttempts(ip)
+  if (isLegacy) {
+    try {
+      const newHash = bcrypt.hashSync(password, 10)
+      updateLegacyUserPassword(u.email, u.passwordHash, newHash)
+    } catch (e) {
+      if (!config.isTest) console.error("Failed to migrate legacy password hash:", e.message)
+    }
+  }
   const token = signToken({ sub: u.id, email: u.email, role: u.role, name: u.name })
   res.json({ token })
 })
@@ -161,11 +257,19 @@ app.get("/clientes", auth, (req, res) => {
     const p = Math.max(1, Number(page))
     const l = Math.max(1, Number(limit))
     const offset = (p - 1) * l
-    const items = listClients({ q, email, minPrecio, maxPrecio, limit: l, offset, includeInactive: String(includeInactive) === 'true' })
-    const total = countClients({ q, email, minPrecio, maxPrecio, includeInactive: String(includeInactive) === 'true' })
+    const items = listClients({
+      q,
+      email,
+      minPrecio,
+      maxPrecio,
+      limit: l,
+      offset,
+      includeInactive: String(includeInactive) === "true"
+    })
+    const total = countClients({ q, email, minPrecio, maxPrecio, includeInactive: String(includeInactive) === "true" })
     res.json({ items, total })
   } else {
-    const data = listClients({ q, email, minPrecio, maxPrecio, includeInactive: String(includeInactive) === 'true' })
+    const data = listClients({ q, email, minPrecio, maxPrecio, includeInactive: String(includeInactive) === "true" })
     res.json(data)
   }
 })
@@ -234,11 +338,11 @@ app.get("/productos", auth, (req, res) => {
     const p = Math.max(1, Number(page))
     const l = Math.max(1, Number(limit))
     const offset = (p - 1) * l
-    const items = listProducts({ q, limit: l, offset, includeInactive: String(includeInactive) === 'true' })
-    const total = countProducts({ q, includeInactive: String(includeInactive) === 'true' })
+    const items = listProducts({ q, limit: l, offset, includeInactive: String(includeInactive) === "true" })
+    const total = countProducts({ q, includeInactive: String(includeInactive) === "true" })
     res.json({ items, total })
   } else {
-    const data = listProducts({ q, includeInactive: String(includeInactive) === 'true' })
+    const data = listProducts({ q, includeInactive: String(includeInactive) === "true" })
     res.json(data)
   }
 })
@@ -246,7 +350,14 @@ app.get("/productos", auth, (req, res) => {
 app.post("/productos", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const { nombre, descripcion, precioMinimo, precioMaximo, stockActual, stockMinimo } = req.body || {}
   if (!nombre) return res.status(400).json({ error: "nombre" })
-  const p = addProduct({ nombre, descripcion, precioMinimo: Number(precioMinimo || 0), precioMaximo: Number(precioMaximo || 0), stockActual: Number(stockActual || 0), stockMinimo: Number(stockMinimo || 0) })
+  const p = addProduct({
+    nombre,
+    descripcion,
+    precioMinimo: Number(precioMinimo || 0),
+    precioMaximo: Number(precioMaximo || 0),
+    stockActual: Number(stockActual || 0),
+    stockMinimo: Number(stockMinimo || 0)
+  })
   res.status(201).json(p)
 })
 
@@ -303,7 +414,11 @@ app.get("/pedidos", auth, (req, res) => {
     if (!Number.isNaN(asNum)) return asNum
     const d = new Date(String(v))
     if (Number.isNaN(d.getTime())) return undefined
-    if (endOfDay) { d.setHours(23,59,59,999) } else { d.setHours(0,0,0,0) }
+    if (endOfDay) {
+      d.setHours(23, 59, 59, 999)
+    } else {
+      d.setHours(0, 0, 0, 0)
+    }
     return d.getTime()
   }
   const filters = {}
@@ -345,10 +460,21 @@ app.post("/pedidos", auth, allowRoles("Admin", "Operador"), (req, res) => {
   if ((prod.stockActual || 0) < cant) return res.status(400).json({ error: "stock" })
   const client = getClient(Number(clienteId))
   if (!client) return res.status(400).json({ error: "cliente" })
-  const unit = precioUnitario != null ? Number(precioUnitario) : Number(client.precioPersonalizado || prod.precioMinimo || 0)
+  const unit =
+    precioUnitario != null ? Number(precioUnitario) : Number(client.precioPersonalizado || prod.precioMinimo || 0)
   const total = unit * cant
   const estado = "Pendiente"
-  const pedido = addOrder({ clienteId: Number(clienteId), productoId: Number(productoId), cantidad: cant, precioUnitario: unit, total, estado, metodoPago: metodoPago || "", notas: notas || "", userId: req.user.sub })
+  const pedido = addOrder({
+    clienteId: Number(clienteId),
+    productoId: Number(productoId),
+    cantidad: cant,
+    precioUnitario: unit,
+    total,
+    estado,
+    metodoPago: metodoPago || "",
+    notas: notas || "",
+    userId: req.user.sub
+  })
   res.status(201).json(pedido)
 })
 
@@ -358,7 +484,9 @@ app.put("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const before = getOrder(id)
   if (!before) return res.status(404).json({ error: "not_found" })
   const updated = updateOrder(id, body)
-  try { addOrderAuditEntry(id, req.user.sub, "actualizado") } catch {}
+  try {
+    addOrderAuditEntry(id, req.user.sub, "actualizado")
+  } catch {}
   if (body.estado === "Completado" && before.estado !== "Completado") {
     const prod = getProduct(before.productoId)
     adjustStock(prod.id, -before.cantidad, "pedido_completado", String(id), req.user.sub)
@@ -371,30 +499,33 @@ app.post("/pedidos/:id/proforma", auth, allowRoles("Admin", "Operador"), async (
   const pedido = getOrder(id)
   if (!pedido) return res.status(404).json({ error: "not_found" })
   const client = getClient(pedido.clienteId)
-  const prod = getProduct(pedido.productoId)
+  const product = getProduct(pedido.productoId)
   const ts = Date.now()
   const fileName = `${id}-${ts}.pdf`
   const filePath = path.join(proformaDir, fileName)
-  const doc = new PDFDocument()
+  const doc = new PDFDocument({ margin: 40 })
   const stream = fs.createWriteStream(filePath)
   doc.pipe(stream)
-  doc.fontSize(18).text("Proforma")
-  doc.moveDown()
-  doc.fontSize(12).text(`Pedido: ${pedido.id}`)
-  doc.text(`Fecha: ${new Date(ts).toLocaleString()}`)
-  doc.text(`Cliente: ${client?.nombre || ""}`)
-  doc.text(`Producto: ${prod?.nombre || ""}`)
-  doc.text(`Cantidad: ${pedido.cantidad}`)
-  doc.text(`Precio unitario: ${pedido.precioUnitario}`)
-  doc.text(`Total: ${pedido.total}`)
+  buildProformaDocument(doc, { pedido, client, product, ts })
   doc.end()
-  await new Promise(r => stream.on("finish", r))
+  await new Promise((r) => stream.on("finish", r))
   const url = `/static/proformas/${fileName}`
   const record = addProforma({ pedidoId: id, clienteId: pedido.clienteId, total: pedido.total, url })
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && client?.email) {
     try {
-      const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })
-      await transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: client.email, subject: "Proforma", text: "Adjunto proforma", attachments: [{ filename: fileName, path: filePath }] })
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: false,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      })
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: client.email,
+        subject: "Proforma",
+        text: "Adjunto proforma",
+        attachments: [{ filename: fileName, path: filePath }]
+      })
     } catch {}
   }
   res.json({ url, proformaId: record.id })
@@ -454,9 +585,21 @@ app.get("/reportes/ventas.csv", auth, (req, res) => {
   if (estado) filters.estado = String(estado)
   if (metodoPago) filters.metodoPago = String(metodoPago)
   const data = listOrdersWithNames(filters)
-  const columns = ["id","fecha","clienteId","clienteNombre","productoId","productoNombre","cantidad","precioUnitario","total","estado","metodoPago"]
+  const columns = [
+    "id",
+    "fecha",
+    "clienteId",
+    "clienteNombre",
+    "productoId",
+    "productoNombre",
+    "cantidad",
+    "precioUnitario",
+    "total",
+    "estado",
+    "metodoPago"
+  ]
   const header = columns.join(delimChar)
-  const rows = data.map(o => {
+  const rows = data.map((o) => {
     const values = [
       o.id,
       new Date(o.createdAt).toISOString(),
@@ -468,7 +611,7 @@ app.get("/reportes/ventas.csv", auth, (req, res) => {
       o.precioUnitario,
       o.total,
       o.estado,
-      ((o.metodoPago && String(o.metodoPago).trim()) ? String(o.metodoPago).trim() : "Efectivo")
+      o.metodoPago && String(o.metodoPago).trim() ? String(o.metodoPago).trim() : "Efectivo"
     ].map(csvEscape)
     return values.join(delimChar)
   })
@@ -477,8 +620,8 @@ app.get("/reportes/ventas.csv", auth, (req, res) => {
   const bom = "\uFEFF"
   const csv = bom + sepLine + csvBody
   const d = new Date()
-  const pad = n => String(n).padStart(2, "0")
-  const stamp = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
+  const pad = (n) => String(n).padStart(2, "0")
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
   res.setHeader("Content-Type", "text/csv; charset=utf-8")
   res.setHeader("Content-Disposition", `attachment; filename=\"ventas-${stamp}.csv\"`)
   res.send(csv)
@@ -507,15 +650,15 @@ app.get("/reportes/kpis", auth, (req, res) => {
   if (estado) filters.estado = String(estado)
   if (metodoPago) filters.metodoPago = String(metodoPago)
   const itemsRaw = listOrders(filters)
-  const items = itemsRaw.filter(o => o.estado !== "Cancelado")
+  const items = itemsRaw.filter((o) => o.estado !== "Cancelado")
   const totalVentas = items.reduce((s, o) => s + Number(o.total || 0), 0)
   const pedidos = items.length
-  const completados = items.filter(o => o.estado === "Completado").length
+  const completados = items.filter((o) => o.estado === "Completado").length
   const ticketPromedio = pedidos ? Math.round(totalVentas / pedidos) : 0
   const totalesPorMetodoPago = {}
   for (const m of payments) {
     totalesPorMetodoPago[m] = items
-      .filter(o => ((o.metodoPago && String(o.metodoPago).trim()) ? String(o.metodoPago).trim() : "Efectivo") === m)
+      .filter((o) => (o.metodoPago && String(o.metodoPago).trim() ? String(o.metodoPago).trim() : "Efectivo") === m)
       .reduce((s, o) => s + Number(o.total || 0), 0)
   }
   res.json({ totalVentas, pedidos, completados, ticketPromedio, totalesPorMetodoPago })
@@ -529,7 +672,11 @@ app.get("/reportes/ventas-series", auth, (req, res) => {
     if (!Number.isNaN(asNum)) return asNum
     const d = new Date(String(v))
     if (Number.isNaN(d.getTime())) return undefined
-    if (endOfDay) { d.setHours(23,59,59,999) } else { d.setHours(0,0,0,0) }
+    if (endOfDay) {
+      d.setHours(23, 59, 59, 999)
+    } else {
+      d.setHours(0, 0, 0, 0)
+    }
     return d.getTime()
   }
   const filters = {}
@@ -545,4 +692,12 @@ app.get("/reportes/ventas-series", auth, (req, res) => {
   res.json(series)
 })
 
-app.listen(port, () => {})
+let server = null
+if (config.nodeEnv !== "test") {
+  server = app.listen(port, () => {
+    console.log(`CRM LOLO backend escuchando en el puerto ${port}`)
+  })
+}
+
+export { app, server }
+export default app

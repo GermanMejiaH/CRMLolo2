@@ -1,13 +1,44 @@
 import React, { useEffect, useState } from "react"
-import { Package, AlertTriangle, Plus, Search, TrendingUp, TrendingDown, Filter, Trash2, Edit2, X, Save, ChevronLeft, ChevronRight, Check, RefreshCw } from "lucide-react"
-import { useToast } from '../components/ToastContext'
-import Modal from '../components/Modal'
-import { getProductos, getProductosPaged, createProducto, ajustarStockProducto, updateProducto, getProductoMovimientos, desactivarProducto, deleteProducto } from '../api/client'
+import {
+  Package,
+  AlertTriangle,
+  Plus,
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Filter,
+  Trash2,
+  Edit2,
+  X,
+  Save,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  RefreshCw
+} from "lucide-react"
+import { useToast } from "../components/ToastContext"
+import Modal from "../components/Modal"
+import {
+  getProductos,
+  getProductosPaged,
+  createProducto,
+  ajustarStockProducto,
+  updateProducto,
+  getProductoMovimientos,
+  desactivarProducto,
+  deleteProducto
+} from "../api/client"
 
 export default function Productos({ token }) {
   const { addToast } = useToast()
   const [items, setItems] = useState([])
-  const [nuevo, setNuevo] = useState({ nombre: "", precioMinimo: "", precioMaximo: "", stockActual: "", stockMinimo: "" })
+  const [nuevo, setNuevo] = useState({
+    nombre: "",
+    precioMinimo: "",
+    precioMaximo: "",
+    stockActual: "",
+    stockMinimo: ""
+  })
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedTerm, setDebouncedTerm] = useState("")
   const [showForm, setShowForm] = useState(false)
@@ -15,7 +46,13 @@ export default function Productos({ token }) {
   const [limit, setLimit] = useState(10)
   const [total, setTotal] = useState(0)
   const [editingId, setEditingId] = useState(null)
-  const [editValues, setEditValues] = useState({ nombre: "", descripcion: "", precioMinimo: "", precioMaximo: "", stockMinimo: "" })
+  const [editValues, setEditValues] = useState({
+    nombre: "",
+    descripcion: "",
+    precioMinimo: "",
+    precioMaximo: "",
+    stockMinimo: ""
+  })
   const [showAdjust, setShowAdjust] = useState(false)
   const [adjustData, setAdjustData] = useState({ diff: "", motivo: "", referencia: "" })
   const [selectedProduct, setSelectedProduct] = useState(null)
@@ -27,6 +64,7 @@ export default function Productos({ token }) {
   const [movFilterType, setMovFilterType] = useState("")
   const [movFilterText, setMovFilterText] = useState("")
   const [includeInactive, setIncludeInactive] = useState(false)
+  const [hasInactiveProducts, setHasInactiveProducts] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteProductId, setDeleteProductId] = useState(null)
   const [showPermanentDeleteConfirm, setShowPermanentDeleteConfirm] = useState(false)
@@ -37,19 +75,30 @@ export default function Productos({ token }) {
     try {
       const params = { q: debouncedTerm, page, limit, includeInactive }
       const data = await getProductosPaged(token, params)
-      if (Array.isArray(data)) {
-        setItems(data)
-        setTotal(data.length)
+      const list = Array.isArray(data) ? data : data.items || []
+      const tot = Array.isArray(data) ? data.length : Number(data.total || 0)
+      setItems(list)
+      setTotal(tot)
+
+      if (list.length === 0 && !includeInactive) {
+        try {
+          const inactiveData = await getProductosPaged(token, { includeInactive: true, page: 1, limit: 1 })
+          const inactiveTot = Array.isArray(inactiveData) ? inactiveData.length : Number(inactiveData.total || 0)
+          setHasInactiveProducts(inactiveTot > 0)
+        } catch {
+          setHasInactiveProducts(false)
+        }
       } else {
-        setItems(data.items || [])
-        setTotal(Number(data.total || 0))
+        setHasInactiveProducts(false)
       }
     } catch {
-      addToast('Error al cargar productos', 'error')
+      addToast("Error al cargar productos", "error")
     }
   }
 
-  useEffect(() => { load() }, [token, page, limit, debouncedTerm, includeInactive])
+  useEffect(() => {
+    load()
+  }, [token, page, limit, debouncedTerm, includeInactive])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedTerm(searchTerm), 300)
@@ -58,13 +107,13 @@ export default function Productos({ token }) {
 
   async function crear() {
     if (!nuevo.nombre || !nuevo.precioMinimo || !nuevo.precioMaximo || !nuevo.stockActual || !nuevo.stockMinimo) {
-      addToast('Por favor completa todos los campos', 'warning')
+      addToast("Por favor completa todos los campos", "warning")
       return
     }
     try {
       const payload = {
         nombre: nuevo.nombre,
-        descripcion: '',
+        descripcion: "",
         precioMinimo: parseFloat(nuevo.precioMinimo),
         precioMaximo: parseFloat(nuevo.precioMaximo),
         stockActual: parseInt(nuevo.stockActual),
@@ -74,9 +123,9 @@ export default function Productos({ token }) {
       setItems([...items, created])
       setNuevo({ nombre: "", precioMinimo: "", precioMaximo: "", stockActual: "", stockMinimo: "" })
       setShowForm(false)
-      addToast('Producto creado exitosamente', 'success')
+      addToast("Producto creado exitosamente", "success")
     } catch (e) {
-      addToast('Error al crear producto', 'error')
+      addToast("Error al crear producto", "error")
     }
   }
 
@@ -90,7 +139,13 @@ export default function Productos({ token }) {
 
   function beginEdit(item) {
     setEditingId(item.id)
-    setEditValues({ nombre: String(item.nombre), descripcion: String(item.descripcion || ""), precioMinimo: String(item.precioMinimo), precioMaximo: String(item.precioMaximo), stockMinimo: String(item.stockMinimo) })
+    setEditValues({
+      nombre: String(item.nombre),
+      descripcion: String(item.descripcion || ""),
+      precioMinimo: String(item.precioMinimo),
+      precioMaximo: String(item.precioMaximo),
+      stockMinimo: String(item.stockMinimo)
+    })
   }
 
   async function saveEdit(id) {
@@ -103,31 +158,31 @@ export default function Productos({ token }) {
         stockMinimo: parseInt(editValues.stockMinimo)
       }
       await updateProducto(token, id, payload)
-      addToast('Producto actualizado', 'success')
+      addToast("Producto actualizado", "success")
       setEditingId(null)
       load()
     } catch {
-      addToast('Error al actualizar', 'error')
+      addToast("Error al actualizar", "error")
     }
   }
 
   async function desactivar(id) {
     try {
       await desactivarProducto(token, id)
-      addToast('Producto desactivado', 'success')
+      addToast("Producto desactivado", "success")
       load()
     } catch {
-      addToast('Error al desactivar', 'error')
+      addToast("Error al desactivar", "error")
     }
   }
 
   async function reactivar(id) {
     try {
       await updateProducto(token, id, { active: 1 })
-      addToast('Producto reactivado', 'success')
+      addToast("Producto reactivado", "success")
       load()
     } catch {
-      addToast('Error al reactivar', 'error')
+      addToast("Error al reactivar", "error")
     }
   }
 
@@ -157,10 +212,10 @@ export default function Productos({ token }) {
     if (!permanentDeleteId) return
     try {
       await deleteProducto(token, permanentDeleteId)
-      addToast('Producto eliminado definitivamente', 'success')
+      addToast("Producto eliminado definitivamente", "success")
       load()
     } catch (e) {
-      addToast(e.message || 'Error al eliminar producto', 'error')
+      addToast(e.message || "Error al eliminar producto", "error")
     } finally {
       setShowPermanentDeleteConfirm(false)
       setPermanentDeleteId(null)
@@ -172,7 +227,9 @@ export default function Productos({ token }) {
     setPermanentDeleteId(null)
   }
 
-  function cancelEdit() { setEditingId(null) }
+  function cancelEdit() {
+    setEditingId(null)
+  }
 
   function openAdjust(item) {
     setSelectedProduct(item)
@@ -193,29 +250,38 @@ export default function Productos({ token }) {
       setMovs(data.items || [])
       setMovTotal(Number(data.total || 0))
     } catch {
-      addToast('Error al cargar movimientos', 'error')
+      addToast("Error al cargar movimientos", "error")
     }
   }
 
   async function confirmarAjuste() {
     if (!selectedProduct) return
     const d = parseInt(adjustData.diff)
-    if (!d) { addToast('Cantidad inválida', 'warning'); return }
+    if (!d) {
+      addToast("Cantidad inválida", "warning")
+      return
+    }
     try {
-      await ajustarStockProducto(token, selectedProduct.id, { diff: d, motivo: adjustData.motivo || 'ajuste', referencia: adjustData.referencia || '' })
-      addToast('Stock ajustado', 'success')
+      await ajustarStockProducto(token, selectedProduct.id, {
+        diff: d,
+        motivo: adjustData.motivo || "ajuste",
+        referencia: adjustData.referencia || ""
+      })
+      addToast("Stock ajustado", "success")
       setShowAdjust(false)
       setSelectedProduct(null)
       load()
     } catch {
-      addToast('Error al ajustar stock', 'error')
+      addToast("Error al ajustar stock", "error")
     }
   }
 
-  const movsFiltered = movs.filter(m => {
+  const movsFiltered = movs.filter((m) => {
     const typeOk = movFilterType ? m.type === movFilterType : true
     const text = movFilterText.toLowerCase()
-    const textOk = movFilterText ? ((m.reason || "").toLowerCase().includes(text) || (m.ref || "").toLowerCase().includes(text)) : true
+    const textOk = movFilterText
+      ? (m.reason || "").toLowerCase().includes(text) || (m.ref || "").toLowerCase().includes(text)
+      : true
     return typeOk && textOk
   })
 
@@ -243,13 +309,13 @@ export default function Productos({ token }) {
             <Package className="w-10 h-10 text-cyan-400/50" />
           </div>
         </div>
-        
+
         <div className="bg-slate-800/50 backdrop-blur-sm border border-yellow-500/30 rounded-lg p-4 shadow-lg shadow-yellow-500/20">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-sm">Stock Bajo</p>
               <p className="text-3xl font-bold text-yellow-400">
-                {items.filter(i => i.stockActual <= i.stockMinimo).length}
+                {items.filter((i) => i.stockActual <= i.stockMinimo).length}
               </p>
             </div>
             <AlertTriangle className="w-10 h-10 text-yellow-400/50" />
@@ -260,9 +326,7 @@ export default function Productos({ token }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-sm">Stock Total</p>
-              <p className="text-3xl font-bold text-purple-400">
-                {items.reduce((sum, i) => sum + i.stockActual, 0)}
-              </p>
+              <p className="text-3xl font-bold text-purple-400">{items.reduce((sum, i) => sum + i.stockActual, 0)}</p>
             </div>
             <TrendingUp className="w-10 h-10 text-purple-400/50" />
           </div>
@@ -277,24 +341,28 @@ export default function Productos({ token }) {
             type="text"
             placeholder="Buscar producto..."
             value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30 transition-all"
           />
         </div>
-        <div 
+        <div
           onClick={() => setIncludeInactive(!includeInactive)}
           className="flex items-center gap-3 cursor-pointer group select-none px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:border-cyan-500/50 transition-all"
         >
-          <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-            includeInactive 
-              ? 'bg-gradient-to-r from-cyan-500 to-purple-500 border-transparent shadow-lg shadow-cyan-500/20' 
-              : 'border-slate-600 bg-slate-800/50 group-hover:border-cyan-500/50'
-          }`}>
+          <div
+            className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
+              includeInactive
+                ? "bg-gradient-to-r from-cyan-500 to-purple-500 border-transparent shadow-lg shadow-cyan-500/20"
+                : "border-slate-600 bg-slate-800/50 group-hover:border-cyan-500/50"
+            }`}
+          >
             {includeInactive && <Check className="w-3.5 h-3.5 text-white" />}
           </div>
-          <span className={`text-sm font-medium transition-colors ${
-            includeInactive ? 'text-cyan-400' : 'text-gray-400 group-hover:text-gray-300'
-          }`}>
+          <span
+            className={`text-sm font-medium transition-colors ${
+              includeInactive ? "text-cyan-400" : "text-gray-400 group-hover:text-gray-300"
+            }`}
+          >
             Mostrar inactivos
           </span>
         </div>
@@ -308,11 +376,7 @@ export default function Productos({ token }) {
       </div>
 
       {/* Create Form */}
-      <Modal
-        isOpen={showForm}
-        onClose={() => setShowForm(false)}
-        title="Crear Nuevo Producto"
-      >
+      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Crear Nuevo Producto">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Nombre</label>
@@ -320,7 +384,7 @@ export default function Productos({ token }) {
               className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
               placeholder="Nombre del producto"
               value={nuevo.nombre}
-              onChange={e => setNuevo({ ...nuevo, nombre: e.target.value })}
+              onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
             />
           </div>
 
@@ -332,7 +396,7 @@ export default function Productos({ token }) {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                 placeholder="0"
                 value={nuevo.precioMinimo}
-                onChange={e => setNuevo({ ...nuevo, precioMinimo: e.target.value })}
+                onChange={(e) => setNuevo({ ...nuevo, precioMinimo: e.target.value })}
               />
             </div>
             <div>
@@ -342,7 +406,7 @@ export default function Productos({ token }) {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                 placeholder="0"
                 value={nuevo.precioMaximo}
-                onChange={e => setNuevo({ ...nuevo, precioMaximo: e.target.value })}
+                onChange={(e) => setNuevo({ ...nuevo, precioMaximo: e.target.value })}
               />
             </div>
           </div>
@@ -355,7 +419,7 @@ export default function Productos({ token }) {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                 placeholder="0"
                 value={nuevo.stockActual}
-                onChange={e => setNuevo({ ...nuevo, stockActual: e.target.value })}
+                onChange={(e) => setNuevo({ ...nuevo, stockActual: e.target.value })}
               />
             </div>
             <div>
@@ -365,7 +429,7 @@ export default function Productos({ token }) {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                 placeholder="0"
                 value={nuevo.stockMinimo}
-                onChange={e => setNuevo({ ...nuevo, stockMinimo: e.target.value })}
+                onChange={(e) => setNuevo({ ...nuevo, stockMinimo: e.target.value })}
               />
             </div>
           </div>
@@ -405,15 +469,35 @@ export default function Productos({ token }) {
               {filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="text-center p-8 text-gray-400">
-                    {searchTerm ? "No se encontraron productos" : "No hay productos registrados"}
+                    {hasInactiveProducts && !includeInactive && !searchTerm ? (
+                      <div className="py-4">
+                        <Package className="w-12 h-12 text-cyan-400/60 mx-auto mb-3" />
+                        <h3 className="text-lg font-semibold text-white mb-1">No hay productos activos registrados</h3>
+                        <p className="text-gray-400 text-sm mb-4 max-w-md mx-auto">
+                          Existen productos inactivos en el inventario. Puedes visualizar los productos inactivos para
+                          consultarlos o reactivarlos.
+                        </p>
+                        <button
+                          onClick={() => setIncludeInactive(true)}
+                          className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-medium text-sm rounded-lg shadow-lg hover:shadow-cyan-500/50 transition-all inline-flex items-center gap-2"
+                        >
+                          <Filter className="w-4 h-4" />
+                          Ver productos inactivos
+                        </button>
+                      </div>
+                    ) : searchTerm ? (
+                      "No se encontraron productos con esos criterios"
+                    ) : (
+                      "No hay productos registrados"
+                    )}
                   </td>
                 </tr>
               ) : (
-                filteredItems.map(item => {
+                filteredItems.map((item) => {
                   const status = getStockStatus(item.stockActual, item.stockMinimo)
                   return (
-                    <tr 
-                      key={item.id} 
+                    <tr
+                      key={item.id}
                       className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-all cursor-pointer"
                     >
                       <td className="p-4">
@@ -423,14 +507,27 @@ export default function Productos({ token }) {
                           </div>
                           {editingId === item.id ? (
                             <div className="flex flex-col gap-2">
-                              <input className="bg-slate-900 border border-slate-700 rounded p-2 text-white" value={editValues.nombre} onChange={e => setEditValues({ ...editValues, nombre: e.target.value })} />
-                              <input className="bg-slate-900 border border-slate-700 rounded p-2 text-white" placeholder="Descripción" value={editValues.descripcion} onChange={e => setEditValues({ ...editValues, descripcion: e.target.value })} />
+                              <input
+                                className="bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                                value={editValues.nombre}
+                                onChange={(e) => setEditValues({ ...editValues, nombre: e.target.value })}
+                              />
+                              <input
+                                className="bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                                placeholder="Descripción"
+                                value={editValues.descripcion}
+                                onChange={(e) => setEditValues({ ...editValues, descripcion: e.target.value })}
+                              />
                             </div>
                           ) : (
                             <div>
                               <div className="text-white font-medium flex items-center gap-2">
                                 <span>{item.nombre}</span>
-                                {item.active === 0 && <span className="px-2 py-0.5 text-xs rounded bg-slate-700 border border-slate-600 text-gray-300">Inactivo</span>}
+                                {item.active === 0 && (
+                                  <span className="px-2 py-0.5 text-xs rounded bg-slate-700 border border-slate-600 text-gray-300">
+                                    Inactivo
+                                  </span>
+                                )}
                               </div>
                               {item.descripcion && <div className="text-gray-400 text-sm">{item.descripcion}</div>}
                             </div>
@@ -440,13 +537,27 @@ export default function Productos({ token }) {
                       <td className="p-4 text-gray-300">
                         {editingId === item.id ? (
                           <div className="flex gap-2">
-                            <input type="number" className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white" value={editValues.precioMinimo} onChange={e => setEditValues({ ...editValues, precioMinimo: e.target.value })} />
-                            <input type="number" className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white" value={editValues.precioMaximo} onChange={e => setEditValues({ ...editValues, precioMaximo: e.target.value })} />
+                            <input
+                              type="number"
+                              className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white"
+                              value={editValues.precioMinimo}
+                              onChange={(e) => setEditValues({ ...editValues, precioMinimo: e.target.value })}
+                            />
+                            <input
+                              type="number"
+                              className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white"
+                              value={editValues.precioMaximo}
+                              onChange={(e) => setEditValues({ ...editValues, precioMaximo: e.target.value })}
+                            />
                           </div>
                         ) : (
                           <div className="flex flex-col">
-                            <span className="text-sm text-gray-400">Min: ${item.precioMinimo.toLocaleString()}</span>
-                            <span className="text-sm text-gray-400">Max: ${item.precioMaximo.toLocaleString()}</span>
+                            <span className="text-sm text-gray-400">
+                              Min: ${(item.precioMinimo || 0).toLocaleString()}
+                            </span>
+                            <span className="text-sm text-gray-400">
+                              Max: ${(item.precioMaximo || 0).toLocaleString()}
+                            </span>
                           </div>
                         )}
                       </td>
@@ -455,7 +566,12 @@ export default function Productos({ token }) {
                       </td>
                       <td className="p-4 text-gray-300">
                         {editingId === item.id ? (
-                          <input type="number" className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white" value={editValues.stockMinimo} onChange={e => setEditValues({ ...editValues, stockMinimo: e.target.value })} />
+                          <input
+                            type="number"
+                            className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white"
+                            value={editValues.stockMinimo}
+                            onChange={(e) => setEditValues({ ...editValues, stockMinimo: e.target.value })}
+                          />
                         ) : (
                           item.stockMinimo
                         )}
@@ -484,30 +600,66 @@ export default function Productos({ token }) {
                         <div className="flex items-center gap-2">
                           {editingId === item.id ? (
                             <>
-                              <button className="px-2 py-1 bg-green-600 text-white rounded flex items-center gap-1" onClick={() => saveEdit(item.id)}><Save className="w-4 h-4" /> Guardar</button>
-                              <button className="px-2 py-1 bg-slate-700 text-white rounded flex items-center gap-1" onClick={cancelEdit}><X className="w-4 h-4" /> Cancelar</button>
+                              <button
+                                className="px-2 py-1 bg-green-600 text-white rounded flex items-center gap-1"
+                                onClick={() => saveEdit(item.id)}
+                              >
+                                <Save className="w-4 h-4" /> Guardar
+                              </button>
+                              <button
+                                className="px-2 py-1 bg-slate-700 text-white rounded flex items-center gap-1"
+                                onClick={cancelEdit}
+                              >
+                                <X className="w-4 h-4" /> Cancelar
+                              </button>
                             </>
                           ) : (
                             <>
-                            <>
-                              {item.active === 0 ? (
-                                <>
-                                  <button className="px-2 py-1 border border-green-500 text-green-400 rounded flex items-center gap-1 hover:bg-green-500/10 transition-colors" onClick={() => reactivar(item.id)}>
-                                    <RefreshCw className="w-4 h-4" /> Reactivar
-                                  </button>
-                                  <button className="px-2 py-1 border border-red-500 text-red-400 rounded flex items-center gap-1 hover:bg-red-500/10 transition-colors" onClick={() => promptEliminarDefinitivamente(item.id)}>
-                                    <Trash2 className="w-4 h-4" /> Eliminar Definitivamente
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button className="px-2 py-1 border border-cyan-500 text-cyan-400 rounded" onClick={() => beginEdit(item)}><Edit2 className="w-4 h-4" /> Editar</button>
-                                  <button className="px-2 py-1 border border-purple-500 text-purple-400 rounded" onClick={() => openAdjust(item)}>Ajustar</button>
-                                  <button className="px-2 py-1 border border-yellow-500 text-yellow-400 rounded" onClick={() => openMovs(item)}>Movimientos</button>
-                                  <button className="px-2 py-1 border border-red-500 text-red-400 rounded" onClick={() => promptDesactivar(item.id)}><Trash2 className="w-4 h-4" /> Desactivar</button>
-                                </>
-                              )}
-                            </>
+                              <>
+                                {item.active === 0 ? (
+                                  <>
+                                    <button
+                                      className="px-2 py-1 border border-green-500 text-green-400 rounded flex items-center gap-1 hover:bg-green-500/10 transition-colors"
+                                      onClick={() => reactivar(item.id)}
+                                    >
+                                      <RefreshCw className="w-4 h-4" /> Reactivar
+                                    </button>
+                                    <button
+                                      className="px-2 py-1 border border-red-500 text-red-400 rounded flex items-center gap-1 hover:bg-red-500/10 transition-colors"
+                                      onClick={() => promptEliminarDefinitivamente(item.id)}
+                                    >
+                                      <Trash2 className="w-4 h-4" /> Eliminar Definitivamente
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      className="px-2 py-1 border border-cyan-500 text-cyan-400 rounded"
+                                      onClick={() => beginEdit(item)}
+                                    >
+                                      <Edit2 className="w-4 h-4" /> Editar
+                                    </button>
+                                    <button
+                                      className="px-2 py-1 border border-purple-500 text-purple-400 rounded"
+                                      onClick={() => openAdjust(item)}
+                                    >
+                                      Ajustar
+                                    </button>
+                                    <button
+                                      className="px-2 py-1 border border-yellow-500 text-yellow-400 rounded"
+                                      onClick={() => openMovs(item)}
+                                    >
+                                      Movimientos
+                                    </button>
+                                    <button
+                                      className="px-2 py-1 border border-red-500 text-red-400 rounded"
+                                      onClick={() => promptDesactivar(item.id)}
+                                    >
+                                      <Trash2 className="w-4 h-4" /> Desactivar
+                                    </button>
+                                  </>
+                                )}
+                              </>
                             </>
                           )}
                         </div>
@@ -525,28 +677,63 @@ export default function Productos({ token }) {
         <div className="space-y-4">
           <div className="text-gray-300">El producto se ocultará de los listados, pero no se eliminará.</div>
           <div className="flex justify-end gap-3">
-            <button className="px-3 py-2 text-slate-400" onClick={cancelDesactivar}>Cancelar</button>
-            <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={confirmDesactivar}>Desactivar</button>
+            <button className="px-3 py-2 text-slate-400" onClick={cancelDesactivar}>
+              Cancelar
+            </button>
+            <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={confirmDesactivar}>
+              Desactivar
+            </button>
           </div>
         </div>
       </Modal>
 
-      <Modal isOpen={showPermanentDeleteConfirm} onClose={cancelEliminarDefinitivamente} title="Eliminar producto definitivamente">
+      <Modal
+        isOpen={showPermanentDeleteConfirm}
+        onClose={cancelEliminarDefinitivamente}
+        title="Eliminar producto definitivamente"
+      >
         <div className="space-y-4">
-          <div className="text-gray-300">¿Estás seguro de que deseas eliminar este producto permanentemente? Esta acción no se puede deshacer.</div>
+          <div className="text-gray-300">
+            ¿Estás seguro de que deseas eliminar este producto permanentemente? Esta acción no se puede deshacer.
+          </div>
           <div className="flex justify-end gap-3">
-            <button className="px-3 py-2 text-slate-400" onClick={cancelEliminarDefinitivamente}>Cancelar</button>
-            <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={confirmEliminarDefinitivamente}>Eliminar Definitivamente</button>
+            <button className="px-3 py-2 text-slate-400" onClick={cancelEliminarDefinitivamente}>
+              Cancelar
+            </button>
+            <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={confirmEliminarDefinitivamente}>
+              Eliminar Definitivamente
+            </button>
           </div>
         </div>
       </Modal>
 
       <div className="flex items-center justify-between mt-4">
-        <div className="text-gray-400">Página {page} de {Math.max(1, Math.ceil(total / limit))}</div>
+        <div className="text-gray-400">
+          Página {page} de {Math.max(1, Math.ceil(total / limit))}
+        </div>
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><ChevronLeft className="w-4 h-4" /></button>
-          <button className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50" disabled={page >= Math.max(1, Math.ceil(total / limit))} onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></button>
-          <select className="ml-2 bg-slate-800 border border-slate-700 rounded text-white p-1" value={limit} onChange={e => { setPage(1); setLimit(Number(e.target.value)) }}>
+          <button
+            className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50"
+            disabled={page >= Math.max(1, Math.ceil(total / limit))}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <select
+            className="ml-2 bg-slate-800 border border-slate-700 rounded text-white p-1"
+            value={limit}
+            onChange={(e) => {
+              setPage(1)
+              setLimit(Number(e.target.value))
+            }}
+          >
             <option value={5}>5</option>
             <option value={10}>10</option>
             <option value={20}>20</option>
@@ -559,20 +746,40 @@ export default function Productos({ token }) {
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Cantidad</label>
-              <input type="number" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" value={adjustData.diff} onChange={e => setAdjustData({ ...adjustData, diff: e.target.value })} />
+              <input
+                type="number"
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                value={adjustData.diff}
+                onChange={(e) => setAdjustData({ ...adjustData, diff: e.target.value })}
+              />
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Motivo</label>
-              <input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" value={adjustData.motivo} onChange={e => setAdjustData({ ...adjustData, motivo: e.target.value })} />
+              <input
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                value={adjustData.motivo}
+                onChange={(e) => setAdjustData({ ...adjustData, motivo: e.target.value })}
+              />
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Referencia</label>
-              <input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" value={adjustData.referencia} onChange={e => setAdjustData({ ...adjustData, referencia: e.target.value })} />
+              <input
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                value={adjustData.referencia}
+                onChange={(e) => setAdjustData({ ...adjustData, referencia: e.target.value })}
+              />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button className="px-4 py-2 bg-slate-700 text-white rounded" onClick={() => setShowAdjust(false)}>Cancelar</button>
-            <button className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-purple-600 text-white rounded" onClick={confirmarAjuste}>Confirmar</button>
+            <button className="px-4 py-2 bg-slate-700 text-white rounded" onClick={() => setShowAdjust(false)}>
+              Cancelar
+            </button>
+            <button
+              className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-purple-600 text-white rounded"
+              onClick={confirmarAjuste}
+            >
+              Confirmar
+            </button>
           </div>
         </div>
       </Modal>
@@ -581,42 +788,68 @@ export default function Productos({ token }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <select className="bg-slate-800 border border-slate-700 rounded text-white p-1" value={movFilterType} onChange={e => setMovFilterType(e.target.value)}>
+              <select
+                className="bg-slate-800 border border-slate-700 rounded text-white p-1"
+                value={movFilterType}
+                onChange={(e) => setMovFilterType(e.target.value)}
+              >
                 <option value="">Todos</option>
                 <option value="entrada">Entrada</option>
                 <option value="salida">Salida</option>
               </select>
-              <input className="bg-slate-800 border border-slate-700 rounded text-white p-1" placeholder="Filtrar por motivo/ref" value={movFilterText} onChange={e => setMovFilterText(e.target.value)} />
-              <button className="px-2 py-1 border border-slate-600 text-gray-300 rounded" onClick={() => { setMovFilterType(""); setMovFilterText("") }}>Limpiar</button>
+              <input
+                className="bg-slate-800 border border-slate-700 rounded text-white p-1"
+                placeholder="Filtrar por motivo/ref"
+                value={movFilterText}
+                onChange={(e) => setMovFilterText(e.target.value)}
+              />
+              <button
+                className="px-2 py-1 border border-slate-600 text-gray-300 rounded"
+                onClick={() => {
+                  setMovFilterType("")
+                  setMovFilterText("")
+                }}
+              >
+                Limpiar
+              </button>
             </div>
-            <button className="px-3 py-1 border border-green-500 text-green-400 rounded" onClick={async () => {
-              if (!selectedProduct) return
-              try {
-                const data = await getProductoMovimientos(token, selectedProduct.id, { page: 1, limit: 1000 })
-                const rows = (data.items || []).filter(m => {
-                  const typeOk = movFilterType ? m.type === movFilterType : true
-                  const t = movFilterText.toLowerCase()
-                  const textOk = movFilterText ? ((m.reason || "").toLowerCase().includes(t) || (m.ref || "").toLowerCase().includes(t)) : true
-                  return typeOk && textOk
-                }).map(m => [
-                  new Date(m.date).toISOString(),
-                  m.type,
-                  m.diff,
-                  m.reason || "",
-                  m.ref || "",
-                  m.userName || m.userId || ""
-                ])
-                const csv = ["fecha,type,diff,motivo,referencia,usuario", ...rows.map(r => r.join(","))].join("\n")
-                const blob = new Blob([csv], { type: "text/csv" })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement("a")
-                a.href = url
-                a.download = `movimientos_${selectedProduct.nombre}_${new Date().toISOString().split('T')[0]}.csv`
-                a.click()
-              } catch {
-                addToast('Error al exportar', 'error')
-              }
-            }}>Exportar CSV</button>
+            <button
+              className="px-3 py-1 border border-green-500 text-green-400 rounded"
+              onClick={async () => {
+                if (!selectedProduct) return
+                try {
+                  const data = await getProductoMovimientos(token, selectedProduct.id, { page: 1, limit: 1000 })
+                  const rows = (data.items || [])
+                    .filter((m) => {
+                      const typeOk = movFilterType ? m.type === movFilterType : true
+                      const t = movFilterText.toLowerCase()
+                      const textOk = movFilterText
+                        ? (m.reason || "").toLowerCase().includes(t) || (m.ref || "").toLowerCase().includes(t)
+                        : true
+                      return typeOk && textOk
+                    })
+                    .map((m) => [
+                      new Date(m.date).toISOString(),
+                      m.type,
+                      m.diff,
+                      m.reason || "",
+                      m.ref || "",
+                      m.userName || m.userId || ""
+                    ])
+                  const csv = ["fecha,type,diff,motivo,referencia,usuario", ...rows.map((r) => r.join(","))].join("\n")
+                  const blob = new Blob([csv], { type: "text/csv" })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement("a")
+                  a.href = url
+                  a.download = `movimientos_${selectedProduct.nombre}_${new Date().toISOString().split("T")[0]}.csv`
+                  a.click()
+                } catch {
+                  addToast("Error al exportar", "error")
+                }
+              }}
+            >
+              Exportar CSV
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -632,26 +865,63 @@ export default function Productos({ token }) {
               </thead>
               <tbody>
                 {movsFiltered.length === 0 ? (
-                  <tr><td className="p-3 text-gray-400" colSpan="6">Sin movimientos</td></tr>
-                ) : movsFiltered.map(m => (
-                  <tr key={m.id} className="border-t border-slate-700">
-                    <td className="p-2 text-gray-300">{new Date(m.date).toLocaleString()}</td>
-                    <td className="p-2 text-gray-300">{m.type}</td>
-                    <td className="p-2 text-gray-300">{m.diff}</td>
-                    <td className="p-2 text-gray-300">{m.reason || ''}</td>
-                    <td className="p-2 text-gray-300">{m.ref || ''}</td>
-                    <td className="p-2 text-gray-300">{m.userName || m.userId || ''}</td>
+                  <tr>
+                    <td className="p-3 text-gray-400" colSpan="6">
+                      Sin movimientos
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  movsFiltered.map((m) => (
+                    <tr key={m.id} className="border-t border-slate-700">
+                      <td className="p-2 text-gray-300">{new Date(m.date).toLocaleString()}</td>
+                      <td className="p-2 text-gray-300">{m.type}</td>
+                      <td className="p-2 text-gray-300">{m.diff}</td>
+                      <td className="p-2 text-gray-300">{m.reason || ""}</td>
+                      <td className="p-2 text-gray-300">{m.ref || ""}</td>
+                      <td className="p-2 text-gray-300">{m.userName || m.userId || ""}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
           <div className="flex items-center justify-between mt-2">
-            <div className="text-gray-400">Página {movPage} de {Math.max(1, Math.ceil(movTotal / movLimit))}</div>
+            <div className="text-gray-400">
+              Página {movPage} de {Math.max(1, Math.ceil(movTotal / movLimit))}
+            </div>
             <div className="flex items-center gap-2">
-              <button className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50" disabled={movPage <= 1} onClick={async () => { const np = movPage - 1; setMovPage(np); await loadMovs(selectedProduct.id, np, movLimit) }}><ChevronLeft className="w-4 h-4" /></button>
-              <button className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50" disabled={movPage >= Math.max(1, Math.ceil(movTotal / movLimit))} onClick={async () => { const np = movPage + 1; setMovPage(np); await loadMovs(selectedProduct.id, np, movLimit) }}><ChevronRight className="w-4 h-4" /></button>
-              <select className="ml-2 bg-slate-800 border border-slate-700 rounded text-white p-1" value={movLimit} onChange={async e => { const nl = Number(e.target.value); setMovLimit(nl); setMovPage(1); await loadMovs(selectedProduct.id, 1, nl) }}>
+              <button
+                className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50"
+                disabled={movPage <= 1}
+                onClick={async () => {
+                  const np = movPage - 1
+                  setMovPage(np)
+                  await loadMovs(selectedProduct.id, np, movLimit)
+                }}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                className="px-3 py-1 border border-slate-600 text-gray-300 rounded disabled:opacity-50"
+                disabled={movPage >= Math.max(1, Math.ceil(movTotal / movLimit))}
+                onClick={async () => {
+                  const np = movPage + 1
+                  setMovPage(np)
+                  await loadMovs(selectedProduct.id, np, movLimit)
+                }}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <select
+                className="ml-2 bg-slate-800 border border-slate-700 rounded text-white p-1"
+                value={movLimit}
+                onChange={async (e) => {
+                  const nl = Number(e.target.value)
+                  setMovLimit(nl)
+                  setMovPage(1)
+                  await loadMovs(selectedProduct.id, 1, nl)
+                }}
+              >
                 <option value={10}>10</option>
                 <option value={20}>20</option>
                 <option value={50}>50</option>
