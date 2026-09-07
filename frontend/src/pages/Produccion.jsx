@@ -13,7 +13,13 @@ import {
   Clock
 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
-import { getProductos, verificarEnsamblado, ejecutarEnsamblado, getHistorialProduccion } from "../api/client"
+import {
+  getProductos,
+  verificarEnsamblado,
+  ejecutarEnsamblado,
+  getHistorialProduccion,
+  getCapacidadTeorica
+} from "../api/client"
 
 export default function Produccion({ token }) {
   const { addToast } = useToast()
@@ -23,6 +29,7 @@ export default function Produccion({ token }) {
   const [selectedProdId, setSelectedProdId] = useState("")
   const [cantidad, setCantidad] = useState("10")
   const [verificacion, setVerificacion] = useState(null)
+  const [capacidadTeorica, setCapacidadTeorica] = useState(null)
   const [loadingCheck, setLoadingCheck] = useState(false)
   const [loadingAssembly, setLoadingAssembly] = useState(false)
 
@@ -34,6 +41,21 @@ export default function Produccion({ token }) {
     loadFinishedProducts()
     loadHistorial()
   }, [token])
+
+  useEffect(() => {
+    if (selectedProdId && token) {
+      loadCapacidad(selectedProdId)
+    }
+  }, [selectedProdId, token])
+
+  async function loadCapacidad(id) {
+    try {
+      const res = await getCapacidadTeorica(token, id)
+      setCapacidadTeorica(res)
+    } catch {
+      setCapacidadTeorica(null)
+    }
+  }
 
   async function loadFinishedProducts() {
     if (!token) return
@@ -99,6 +121,7 @@ export default function Produccion({ token }) {
       setVerificacion(null)
       loadFinishedProducts()
       loadHistorial()
+      if (selectedProdId) loadCapacidad(selectedProdId)
     } catch (e) {
       addToast(e.message || "Error al ejecutar orden de ensamblado", "error")
     } finally {
@@ -311,17 +334,35 @@ export default function Produccion({ token }) {
           </div>
 
           {selectedProdObj && (
-            <div className="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-xs space-y-1">
+            <div className="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-xs space-y-2">
               <div className="text-slate-400 font-medium">Producto Seleccionado</div>
               <div className="text-sm font-bold text-white">{selectedProdObj.nombre}</div>
-              <div className="flex justify-between text-slate-300 pt-1">
+              <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800">
                 <span>Stock Actual:</span>
                 <span className="font-semibold text-cyan-400">{selectedProdObj.stockActual} unid</span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span>Costo Unitario:</span>
+                <span>Costo Unitario BOM:</span>
                 <span className="font-semibold text-green-400">${selectedProdObj.costoUnitario || 0}</span>
               </div>
+
+              {capacidadTeorica && (
+                <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-300 font-medium">Capacidad Máx. Ensamblado:</span>
+                    <span className="font-bold text-emerald-400 text-sm">{capacidadTeorica.capacidadMaxima} unid</span>
+                  </div>
+                  {capacidadTeorica.cuelloDeBotella ? (
+                    <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg text-[11px] text-amber-300">
+                      <strong>⚠️ Cuello de botella:</strong> {capacidadTeorica.cuelloDeBotella.materiaPrimaNombre} (stock: {capacidadTeorica.cuelloDeBotella.stockActual} {capacidadTeorica.cuelloDeBotella.unidadMedida})
+                    </div>
+                  ) : capacidadTeorica.capacidadMaxima > 0 ? (
+                    <div className="text-[11px] text-emerald-400">
+                      ✓ Insumos balanceados para ensamblar hasta {capacidadTeorica.capacidadMaxima} unidades.
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
         </div>

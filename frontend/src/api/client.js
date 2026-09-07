@@ -241,3 +241,34 @@ export function ejecutarEnsamblado(token, productoTerminadoId, cantidadProducida
 export function getHistorialProduccion(token) {
   return request("/produccion/historial", { token })
 }
+
+export function getCapacidadTeorica(token, productoTerminadoId) {
+  return request(`/produccion/capacidad-teorica/${productoTerminadoId}`, { token })
+}
+
+export function createCompra(token, payload) {
+  return request("/compras", { method: "POST", token, body: payload })
+}
+
+export function getCompras(token, params = {}) {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== "") qs.set(k, String(v))
+  })
+  return request(`/compras${qs.toString() ? `?${qs.toString()}` : ""}`, { token })
+}
+
+export function getCompra(token, id) {
+  return request(`/compras/${id}`, { token })
+}
+
+export function getKardex(token, productoId = null, params = {}) {
+  const qs = new URLSearchParams()
+  if (productoId) qs.set("productoId", String(productoId))
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== "") qs.set(k, String(v))
+  })
+  const pathStr = productoId ? `/kardex/${productoId}` : "/kardex"
+  return request(`${pathStr}${qs.toString() ? `?${qs.toString()}` : ""}`, { token })
+}
+

@@ -118,6 +118,25 @@ export const abonoSchema = z.object({
 })
 
 /**
+ * Schema de validación para ítem de orden de compra
+ */
+export const purchaseItemSchema = z.object({
+  productId: z.coerce.number().int().positive("ID de producto/insumo inválido"),
+  cantidad: z.coerce.number().positive("La cantidad comprada debe ser mayor a 0"),
+  costoUnitario: z.coerce.number().min(0, "El costo unitario no puede ser negativo")
+})
+
+/**
+ * Schema de validación para creación de órdenes de compra / importaciones
+ */
+export const purchaseSchema = z.object({
+  proveedor: z.string().min(1, "El nombre del proveedor es obligatorio").max(200),
+  items: z.array(purchaseItemSchema).min(1, "La orden de compra debe tener al menos un insumo"),
+  notas: z.string().nullable().optional()
+})
+
+
+/**
  * Middleware Express reutilizable para validar el cuerpo de la petición (req.body)
  * @param {z.ZodSchema} schema - Schema Zod a evaluar
  */

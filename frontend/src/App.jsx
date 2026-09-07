@@ -5,6 +5,7 @@ import {
   Users,
   Package,
   Cpu,
+  Truck,
   ShoppingCart,
   FileText,
   Settings as SettingsIcon,
@@ -18,6 +19,7 @@ import Dashboard from "./pages/Dashboard.jsx"
 import Clientes from "./pages/Clientes.jsx"
 import Productos from "./pages/Productos.jsx"
 import Produccion from "./pages/Produccion.jsx"
+import Compras from "./pages/Compras.jsx"
 import Pedidos from "./pages/Pedidos.jsx"
 import Proformas from "./pages/Proformas.jsx"
 import Configuracion from "./pages/Configuracion.jsx"
@@ -81,6 +83,14 @@ export default function App() {
                 }
               >
                 <Cpu className="w-4 h-4" /> Producción
+              </NavLink>
+              <NavLink
+                to="/compras"
+                className={({ isActive }) =>
+                  `px-3 py-2 rounded-lg flex items-center gap-2 text-sm ${isActive ? "bg-slate-800/60 border border-cyan-500/40 text-cyan-300" : "text-gray-300 hover:text-white"}`
+                }
+              >
+                <Truck className="w-4 h-4" /> Compras
               </NavLink>
               <NavLink
                 to="/pedidos"
@@ -166,6 +176,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <Produccion token={token} />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/compras"
+              element={
+                <RequireAuth>
+                  <Compras token={token} />
                 </RequireAuth>
               }
             />

@@ -998,6 +998,200 @@ function checkAssemblyAvailability(productoTerminadoId, cantidadProducida) {
   }
 }
 
+function recordKardexMovement(productId, tipoMovimiento, cantidad, stockResultante, referenciaId = null, userId = null, notas = null) {
+  const p = getProduct(productId)
+  if (!p) return null
+  const date = Date.now()
+  const unidadMedida = p.unidadMedida || "unidades"
+  db.prepare(
+    "INSERT INTO kardex_movements (productId, tipoMovimiento, cantidad, unidadMedida, stockResultante, referenciaId, userId, fecha, notas) VALUES (?,?,?,?,?,?,?,?,?)"
+  ).run(
+    Number(productId),
+    String(tipoMovimiento),
+    Number(cantidad),
+    unidadMedida,
+    Number(stockResultante),
+    referenciaId ? String(referenciaId) : null,
+    userId ? Number(userId) : null,
+    date,
+    notas ? String(notas) : null
+  )
+}
+
+function createPurchase(data, userId) {
+  const proveedor = data.proveedor
+  const items = data.items || []
+  const notas = data.notas || null
+  const date = Date.now()
+
+  let totalCost = 0
+  const processedItems = items.map((it) => {
+    const pid = Number(it.productId)
+    const cant = Number(it.cantidad)
+    const costoUnit = Number(it.costoUnitario)
+    const subtotal = Math.round(cant * costoUnit)
+    totalCost += subtotal
+    return { productId: pid, cantidad: cant, costoUnitario: costoUnit, subtotal }
+  })
+
+  const transaction = db.transaction(() => {
+    const info = db
+      .prepare("INSERT INTO purchases (proveedor, totalCost, fecha, userId, notas, createdAt) VALUES (?,?,?,?,?,?)")
+      .run(proveedor, totalCost, date, userId || null, notas, date)
+    const purchaseId = info.lastInsertRowid
+
+    const stmtItem = db.prepare(
+      "INSERT INTO purchase_items (purchaseId, productId, cantidad, costoUnitario, subtotal) VALUES (?,?,?,?,?)"
+    )
+
+    for (const item of processedItems) {
+      stmtItem.run(purchaseId, item.productId, item.cantidad, item.costoUnitario, item.subtotal)
+
+      const p = getProduct(item.productId)
+      if (p) {
+        const oldStock = Number(p.stockActual || 0)
+        const oldCosto = Number(p.costoUnitario || 0)
+        const newStock = oldStock + item.cantidad
+        let newCosto = item.costoUnitario
+        if (newStock > 0 && oldStock * oldCosto + item.cantidad * item.costoUnitario > 0) {
+          newCosto = Math.round((oldStock * oldCosto + item.cantidad * item.costoUnitario) / newStock)
+        }
+
+        db.prepare("UPDATE products SET stockActual = ?, costoUnitario = ?, updatedAt = ? WHERE id = ?").run(
+          newStock,
+          newCosto,
+          date,
+          item.productId
+        )
+
+        recordKardexMovement(
+          item.productId,
+          "COMPRA",
+          item.cantidad,
+          newStock,
+          `COMPRA-${purchaseId}`,
+          userId,
+          `Compra a ${proveedor}`
+        )
+      }
+    }
+
+    return purchaseId
+  })
+
+  const purchaseId = transaction()
+  return getPurchase(purchaseId)
+}
+
+function getPurchase(id) {
+  const purchase = db
+    .prepare(
+      `SELECT pur.*, u.name as userName
+       FROM purchases pur
+       LEFT JOIN users u ON u.id = pur.userId
+       WHERE pur.id = ?`
+    )
+    .get(id)
+  if (!purchase) return null
+  const items = db
+    .prepare(
+      `SELECT pi.*, p.nombre as productoNombre, p.unidadMedida
+       FROM purchase_items pi
+       LEFT JOIN products p ON p.id = pi.productId
+       WHERE pi.purchaseId = ?`
+    )
+    .all(id)
+  purchase.items = items || []
+  return purchase
+}
+
+function listPurchases({ limit = 50, offset = 0 } = {}) {
+  return db
+    .prepare(
+      `SELECT pur.*, u.name as userName,
+              (SELECT COUNT(1) FROM purchase_items WHERE purchaseId = pur.id) as totalItems
+       FROM purchases pur
+       LEFT JOIN users u ON u.id = pur.userId
+       ORDER BY pur.fecha DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(Number(limit), Number(offset))
+}
+
+function getKardex(productId, { limit = 50, offset = 0 } = {}) {
+  let sql = `
+    SELECT k.*, p.nombre as productoNombre, u.name as userName
+    FROM kardex_movements k
+    LEFT JOIN products p ON p.id = k.productId
+    LEFT JOIN users u ON u.id = k.userId
+    WHERE 1=1`
+  const params = []
+  if (productId) {
+    sql += " AND k.productId = ?"
+    params.push(Number(productId))
+  }
+  sql += " ORDER BY k.fecha DESC LIMIT ? OFFSET ?"
+  params.push(Number(limit), Number(offset))
+
+  return db.prepare(sql).all(...params)
+}
+
+function getCapacidadEnsambladoTeorica(productoTerminadoId) {
+  const pt = getProduct(productoTerminadoId)
+  if (!pt) throw new Error("Producto terminado no encontrado")
+  const recipe = getBom(productoTerminadoId)
+
+  if (!recipe || recipe.length === 0) {
+    return {
+      productoTerminadoId: Number(productoTerminadoId),
+      productoTerminadoNombre: pt.nombre,
+      capacidadMaxima: 0,
+      reason: "Sin receta BOM configurada",
+      cuelloDeBotella: null,
+      insumos: []
+    }
+  }
+
+  let minUnits = Infinity
+  let bottleneck = null
+
+  const insumosEvaluados = recipe.map((item) => {
+    const required = Number(item.cantidadRequerida || 0)
+    const available = Number(item.stockActual || 0)
+    const possible = required > 0 ? Math.floor(available / required) : 0
+
+    if (possible < minUnits) {
+      minUnits = possible
+      bottleneck = {
+        materiaPrimaId: item.materiaPrimaId,
+        materiaPrimaNombre: item.materiaPrimaNombre,
+        stockActual: available,
+        unidadMedida: item.materiaPrimaUnidadMedida || "unidades",
+        cantidadRequeridaUnitaria: required
+      }
+    }
+
+    return {
+      materiaPrimaId: item.materiaPrimaId,
+      materiaPrimaNombre: item.materiaPrimaNombre,
+      stockActual: available,
+      unidadMedida: item.materiaPrimaUnidadMedida || "unidades",
+      cantidadRequeridaUnitaria: required,
+      capacidadPosible: possible
+    }
+  })
+
+  const capacidadMaxima = minUnits === Infinity ? 0 : Math.max(0, minUnits)
+
+  return {
+    productoTerminadoId: Number(productoTerminadoId),
+    productoTerminadoNombre: pt.nombre,
+    capacidadMaxima,
+    cuelloDeBotella: capacidadMaxima === 0 || bottleneck ? bottleneck : null,
+    insumos: insumosEvaluados
+  }
+}
+
 function executeAssemblyOrder(productoTerminadoId, cantidadProducida, userId, notas) {
   const check = checkAssemblyAvailability(productoTerminadoId, cantidadProducida)
   if (!check.available) {
@@ -1017,6 +1211,16 @@ function executeAssemblyOrder(productoTerminadoId, cantidadProducida, userId, no
         `Ensamblado de ${cantidadProducida} uds de ${pt.nombre}`,
         userId
       )
+      const mp = getProduct(item.materiaPrimaId)
+      recordKardexMovement(
+        item.materiaPrimaId,
+        "ENSAMBLADO_CONSUMO",
+        -item.cantidadTotalRequerida,
+        mp ? mp.stockActual : 0,
+        null,
+        userId,
+        `Consumo para producir ${cantidadProducida} uds de ${pt.nombre}`
+      )
     }
 
     // 2. Aumentar stock de producto terminado y actualizar costo unitario
@@ -1028,6 +1232,8 @@ function executeAssemblyOrder(productoTerminadoId, cantidadProducida, userId, no
       userId
     )
     db.prepare("UPDATE products SET costoUnitario = ? WHERE id = ?").run(check.unitCost, Number(productoTerminadoId))
+
+    const ptUpdated = getProduct(productoTerminadoId)
 
     // 3. Registrar orden de ensamblado
     const info = db
@@ -1044,7 +1250,19 @@ function executeAssemblyOrder(productoTerminadoId, cantidadProducida, userId, no
         notas || null
       )
 
-    return db.prepare("SELECT * FROM assembly_orders WHERE id = ?").get(info.lastInsertRowid)
+    const orderId = info.lastInsertRowid
+
+    recordKardexMovement(
+      productoTerminadoId,
+      "ENSAMBLADO_PRODUCCION",
+      Number(cantidadProducida),
+      ptUpdated ? ptUpdated.stockActual : 0,
+      `ORDEN-${orderId}`,
+      userId,
+      `Ensamblado de ${cantidadProducida} uds`
+    )
+
+    return db.prepare("SELECT * FROM assembly_orders WHERE id = ?").get(orderId)
   })
 
   const order = transaction()
@@ -1110,5 +1328,12 @@ export {
   setBom,
   checkAssemblyAvailability,
   executeAssemblyOrder,
-  listAssemblyOrders
+  listAssemblyOrders,
+  recordKardexMovement,
+  createPurchase,
+  getPurchase,
+  listPurchases,
+  getKardex,
+  getCapacidadEnsambladoTeorica
 }
+

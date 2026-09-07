@@ -52,7 +52,12 @@ import {
   setBom,
   checkAssemblyAvailability,
   executeAssemblyOrder,
-  listAssemblyOrders
+  listAssemblyOrders,
+  createPurchase,
+  getPurchase,
+  listPurchases,
+  getKardex,
+  getCapacidadEnsambladoTeorica
 } from "./store.js"
 
 import {
@@ -62,7 +67,8 @@ import {
   orderSchema,
   abonoSchema,
   bomSchema,
-  assemblyOrderSchema
+  assemblyOrderSchema,
+  purchaseSchema
 } from "./schemas.js"
 import config from "./config.js"
 
@@ -650,6 +656,91 @@ app.get("/pedidos/:id/abonos", auth, (req, res) => {
   const paymentsData = getOrderPayments(id)
   res.json(paymentsData)
 })
+
+// --- RUTAS DE BOM Y PRODUCCIÓN ---
+app.get("/bom/:productoId", auth, (req, res) => {
+  const id = Number(req.params.productoId)
+  res.json(getBom(id))
+})
+
+app.post("/bom/:productoId", auth, allowRoles("Admin", "Operador"), validate(bomSchema), (req, res) => {
+  const id = Number(req.params.productoId)
+  try {
+    const updated = setBom(id, req.body.items)
+    res.json(updated)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.post("/produccion/verificar", auth, (req, res) => {
+  const { productoTerminadoId, cantidadProducida } = req.body || {}
+  try {
+    const check = checkAssemblyAvailability(Number(productoTerminadoId), Number(cantidadProducida))
+    res.json(check)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.get("/produccion/capacidad-teorica/:productoId", auth, (req, res) => {
+  const id = Number(req.params.productoId)
+  try {
+    const capacidad = getCapacidadEnsambladoTeorica(id)
+    res.json(capacidad)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.post("/produccion/ensamblar", auth, allowRoles("Admin", "Operador"), validate(assemblyOrderSchema), (req, res) => {
+  const { productoTerminadoId, cantidadProducida, notas } = req.body
+  try {
+    const result = executeAssemblyOrder(Number(productoTerminadoId), Number(cantidadProducida), req.user?.sub, notas)
+    res.status(201).json(result)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.get("/produccion/historial", auth, (req, res) => {
+  res.json(listAssemblyOrders())
+})
+
+// --- RUTAS DE COMPRAS E IMPORTACIONES ---
+app.post("/compras", auth, allowRoles("Admin", "Operador"), validate(purchaseSchema), (req, res) => {
+  try {
+    const purchase = createPurchase(req.body, req.user?.sub)
+    res.status(201).json(purchase)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.get("/compras", auth, (req, res) => {
+  const { limit, offset } = req.query
+  res.json(listPurchases({ limit: Number(limit || 50), offset: Number(offset || 0) }))
+})
+
+app.get("/compras/:id", auth, (req, res) => {
+  const id = Number(req.params.id)
+  const purchase = getPurchase(id)
+  if (!purchase) return res.status(404).json({ error: "not_found" })
+  res.json(purchase)
+})
+
+// --- RUTAS DE KARDEX ---
+app.get("/kardex", auth, (req, res) => {
+  const { productoId, limit, offset } = req.query
+  res.json(getKardex(productoId ? Number(productoId) : null, { limit: Number(limit || 50), offset: Number(offset || 0) }))
+})
+
+app.get("/kardex/:productoId", auth, (req, res) => {
+  const id = Number(req.params.productoId)
+  const { limit, offset } = req.query
+  res.json(getKardex(id, { limit: Number(limit || 50), offset: Number(offset || 0) }))
+})
+
 
 // removed legacy KPIs route
 

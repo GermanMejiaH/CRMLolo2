@@ -30,7 +30,8 @@ import {
   desactivarProducto,
   deleteProducto,
   getBom,
-  setBom
+  setBom,
+  getKardex
 } from "../api/client"
 
 export default function Productos({ token }) {
@@ -368,11 +369,12 @@ export default function Productos({ token }) {
 
   async function loadMovs(id, pageArg, limitArg) {
     try {
-      const data = await getProductoMovimientos(token, id, { page: pageArg, limit: limitArg })
-      setMovs(data.items || [])
-      setMovTotal(Number(data.total || 0))
+      const data = await getKardex(token, id, { limit: limitArg || 50 })
+      const list = Array.isArray(data) ? data : []
+      setMovs(list)
+      setMovTotal(list.length)
     } catch {
-      addToast("Error al cargar movimientos", "error")
+      addToast("Error al cargar movimientos de Kardex", "error")
     }
   }
 
@@ -1182,33 +1184,55 @@ export default function Productos({ token }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-slate-300">
-                  <th className="p-2 text-left">Fecha</th>
-                  <th className="p-2 text-left">Tipo</th>
-                  <th className="p-2 text-left">Cantidad</th>
-                  <th className="p-2 text-left">Motivo</th>
-                  <th className="p-2 text-left">Referencia</th>
-                  <th className="p-2 text-left">Usuario</th>
+                <tr className="bg-slate-900 text-slate-400 text-xs">
+                  <th className="p-2.5 text-left">Fecha</th>
+                  <th className="p-2.5 text-left">Movimiento</th>
+                  <th className="p-2.5 text-left">Cantidad</th>
+                  <th className="p-2.5 text-left">Stock Resultante</th>
+                  <th className="p-2.5 text-left">Referencia</th>
+                  <th className="p-2.5 text-left">Observación / Usuario</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-800 text-xs">
                 {movsFiltered.length === 0 ? (
                   <tr>
-                    <td className="p-3 text-gray-400" colSpan="6">
-                      Sin movimientos
+                    <td className="p-4 text-center text-slate-500" colSpan="6">
+                      Sin movimientos de Kardex registrados
                     </td>
                   </tr>
                 ) : (
-                  movsFiltered.map((m) => (
-                    <tr key={m.id} className="border-t border-slate-700">
-                      <td className="p-2 text-gray-300">{new Date(m.date).toLocaleString()}</td>
-                      <td className="p-2 text-gray-300">{m.type}</td>
-                      <td className="p-2 text-gray-300">{m.diff}</td>
-                      <td className="p-2 text-gray-300">{m.reason || ""}</td>
-                      <td className="p-2 text-gray-300">{m.ref || ""}</td>
-                      <td className="p-2 text-gray-300">{m.userName || m.userId || ""}</td>
-                    </tr>
-                  ))
+                  movsFiltered.map((m) => {
+                    const tipo = m.tipoMovimiento || m.type || "AJUSTE"
+                    const isPositive = Number(m.cantidad || m.diff || 0) > 0
+                    const unit = m.unidadMedida || selectedProduct?.unidadMedida || "unid"
+                    let badgeClass = "bg-slate-700/40 text-slate-300 border-slate-600"
+                    if (tipo === "COMPRA") badgeClass = "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                    else if (tipo === "ENSAMBLADO_CONSUMO") badgeClass = "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                    else if (tipo === "ENSAMBLADO_PRODUCCION") badgeClass = "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
+                    else if (tipo === "VENTA") badgeClass = "bg-purple-500/20 text-purple-300 border-purple-500/30"
+
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 text-slate-300">{new Date(m.fecha || m.date).toLocaleString()}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-semibold ${badgeClass}`}>
+                            {tipo}
+                          </span>
+                        </td>
+                        <td className={`p-2.5 font-bold ${isPositive ? "text-emerald-400" : "text-amber-400"}`}>
+                          {isPositive ? `+${m.cantidad || m.diff}` : `${m.cantidad || m.diff}`} {unit}
+                        </td>
+                        <td className="p-2.5 font-semibold text-cyan-300">
+                          {m.stockResultante != null ? `${m.stockResultante} ${unit}` : "-"}
+                        </td>
+                        <td className="p-2.5 font-mono text-slate-400">{m.referenciaId || m.ref || "-"}</td>
+                        <td className="p-2.5 text-slate-300">
+                          {m.notas || m.reason || ""}{" "}
+                          <span className="text-slate-500 text-[10px]">({m.userName || "Admin"})</span>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>
