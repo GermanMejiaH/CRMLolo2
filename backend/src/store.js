@@ -189,11 +189,15 @@ function updateClient(id, data) {
 }
 
 function listProducts(filters = {}) {
-  const { q, limit, offset, includeInactive = false } = filters
+  const { q, limit, offset, includeInactive = false, tipo } = filters
   let sql = "SELECT * FROM products WHERE 1=1"
   const params = []
   if (!includeInactive) {
     sql += " AND (active = 1 OR active IS NULL)"
+  }
+  if (tipo) {
+    sql += " AND tipo = ?"
+    params.push(String(tipo))
   }
   if (q) {
     sql += " AND lower(nombre) LIKE ?"
@@ -207,11 +211,15 @@ function listProducts(filters = {}) {
 }
 
 function countProducts(filters = {}) {
-  const { q, includeInactive = false } = filters
+  const { q, includeInactive = false, tipo } = filters
   let sql = "SELECT COUNT(1) as c FROM products WHERE 1=1"
   const params = []
   if (!includeInactive) {
     sql += " AND (active = 1 OR active IS NULL)"
+  }
+  if (tipo) {
+    sql += " AND tipo = ?"
+    params.push(String(tipo))
   }
   if (q) {
     sql += " AND lower(nombre) LIKE ?"
@@ -223,8 +231,11 @@ function countProducts(filters = {}) {
 
 function addProduct(data) {
   const updatedAt = Date.now()
+  const tipo = data.tipo || "producto_terminado"
+  const costoUnitario = Number(data.costoUnitario || 0)
+  const unidadMedida = data.unidadMedida || "unidades"
   const stmt = db.prepare(
-    "INSERT INTO products (nombre, descripcion, precioMinimo, precioMaximo, stockActual, stockMinimo, updatedAt) VALUES (?,?,?,?,?,?,?)"
+    "INSERT INTO products (nombre, descripcion, precioMinimo, precioMaximo, stockActual, stockMinimo, tipo, costoUnitario, unidadMedida, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?)"
   )
   const info = stmt.run(
     data.nombre,
@@ -233,6 +244,9 @@ function addProduct(data) {
     Number(data.precioMaximo || 0),
     Number(data.stockActual || 0),
     Number(data.stockMinimo || 0),
+    tipo,
+    costoUnitario,
+    unidadMedida,
     updatedAt
   )
   return db.prepare("SELECT * FROM products WHERE id = ?").get(info.lastInsertRowid)
@@ -261,8 +275,11 @@ function updateProduct(id, data) {
   const current = getProduct(id)
   if (!current) return null
   const updated = { ...current, ...data, updatedAt: Date.now() }
+  const tipoVal = updated.tipo || current.tipo || "producto_terminado"
+  const costoVal = updated.costoUnitario == null ? current.costoUnitario || 0 : Number(updated.costoUnitario)
+  const unidadVal = updated.unidadMedida || current.unidadMedida || "unidades"
   db.prepare(
-    "UPDATE products SET nombre=?, descripcion=?, precioMinimo=?, precioMaximo=?, stockActual=?, stockMinimo=?, updatedAt=?, active=? WHERE id=?"
+    "UPDATE products SET nombre=?, descripcion=?, precioMinimo=?, precioMaximo=?, stockActual=?, stockMinimo=?, tipo=?, costoUnitario=?, unidadMedida=?, updatedAt=?, active=? WHERE id=?"
   ).run(
     updated.nombre,
     updated.descripcion,
@@ -270,6 +287,9 @@ function updateProduct(id, data) {
     Number(updated.precioMaximo || 0),
     Number(updated.stockActual || 0),
     Number(updated.stockMinimo || 0),
+    tipoVal,
+    costoVal,
+    unidadVal,
     updated.updatedAt,
     updated.active == null ? (current.active ?? 1) : Number(updated.active ? 1 : 0),
     id
@@ -899,6 +919,150 @@ function getClientResumen360(clienteId) {
   }
 }
 
+function getBom(productoTerminadoId) {
+  return db
+    .prepare(
+      `SELECT b.*, p.nombre as materiaPrimaNombre, p.stockActual, p.costoUnitario, p.unidadMedida as materiaPrimaUnidadMedida
+       FROM bom_items b
+       JOIN products p ON p.id = b.materiaPrimaId
+       WHERE b.productoTerminadoId = ?`
+    )
+    .all(Number(productoTerminadoId))
+}
+
+function setBom(productoTerminadoId, items) {
+  const now = Date.now()
+  const pt = getProduct(productoTerminadoId)
+  if (!pt) throw new Error("Producto terminado no encontrado")
+
+  const transaction = db.transaction(() => {
+    db.prepare("DELETE FROM bom_items WHERE productoTerminadoId = ?").run(Number(productoTerminadoId))
+    const stmt = db.prepare(
+      "INSERT INTO bom_items (productoTerminadoId, materiaPrimaId, cantidadRequerida, createdAt) VALUES (?, ?, ?, ?)"
+    )
+    for (const item of items) {
+      stmt.run(Number(productoTerminadoId), Number(item.materiaPrimaId), Number(item.cantidadRequerida), now)
+    }
+  })
+  transaction()
+  return getBom(productoTerminadoId)
+}
+
+function checkAssemblyAvailability(productoTerminadoId, cantidadProducida) {
+  const pt = getProduct(productoTerminadoId)
+  if (!pt) throw new Error("Producto terminado no encontrado")
+  const recipe = getBom(productoTerminadoId)
+  if (recipe.length === 0) {
+    return {
+      available: false,
+      reason: "El producto no tiene una receta (BOM) configurada",
+      items: [],
+      totalCost: 0,
+      unitCost: 0
+    }
+  }
+
+  let totalUnitCost = 0
+  let allAvailable = true
+
+  const evaluatedItems = recipe.map((item) => {
+    const required = Number(item.cantidadRequerida) * Number(cantidadProducida)
+    const currentStock = Number(item.stockActual || 0)
+    const isSufficient = currentStock >= required
+    if (!isSufficient) allAvailable = false
+    const itemUnitCost = Number(item.costoUnitario || 0) * Number(item.cantidadRequerida)
+    totalUnitCost += itemUnitCost
+
+    return {
+      materiaPrimaId: item.materiaPrimaId,
+      materiaPrimaNombre: item.materiaPrimaNombre,
+      materiaPrimaUnidadMedida: item.materiaPrimaUnidadMedida || "unidades",
+      cantidadRequeridaUnitaria: item.cantidadRequerida,
+      cantidadTotalRequerida: required,
+      stockActual: currentStock,
+      suficiente: isSufficient,
+      faltante: isSufficient ? 0 : required - currentStock,
+      costoUnitarioMateria: item.costoUnitario || 0
+    }
+  })
+
+  const totalCost = Math.round(totalUnitCost * Number(cantidadProducida))
+  const unitCost = Math.round(totalUnitCost)
+
+  return {
+    available: allAvailable,
+    reason: allAvailable ? "OK" : "Materia prima / insumos insuficientes",
+    items: evaluatedItems,
+    totalCost,
+    unitCost
+  }
+}
+
+function executeAssemblyOrder(productoTerminadoId, cantidadProducida, userId, notas) {
+  const check = checkAssemblyAvailability(productoTerminadoId, cantidadProducida)
+  if (!check.available) {
+    throw new Error(`No se puede ensamblar: ${check.reason}`)
+  }
+
+  const date = Date.now()
+  const pt = getProduct(productoTerminadoId)
+
+  const transaction = db.transaction(() => {
+    // 1. Descontar materias primas
+    for (const item of check.items) {
+      adjustStock(
+        item.materiaPrimaId,
+        -item.cantidadTotalRequerida,
+        "Consumo Producción",
+        `Ensamblado de ${cantidadProducida} uds de ${pt.nombre}`,
+        userId
+      )
+    }
+
+    // 2. Aumentar stock de producto terminado y actualizar costo unitario
+    adjustStock(
+      productoTerminadoId,
+      Number(cantidadProducida),
+      "Entrada Producción",
+      `Ensamblado de ${cantidadProducida} uds`,
+      userId
+    )
+    db.prepare("UPDATE products SET costoUnitario = ? WHERE id = ?").run(check.unitCost, Number(productoTerminadoId))
+
+    // 3. Registrar orden de ensamblado
+    const info = db
+      .prepare(
+        "INSERT INTO assembly_orders (productoTerminadoId, cantidadProducida, costoTotalProduccion, costoUnitario, date, userId, notas) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run(
+        Number(productoTerminadoId),
+        Number(cantidadProducida),
+        check.totalCost,
+        check.unitCost,
+        date,
+        userId || null,
+        notas || null
+      )
+
+    return db.prepare("SELECT * FROM assembly_orders WHERE id = ?").get(info.lastInsertRowid)
+  })
+
+  const order = transaction()
+  return { order, summary: check }
+}
+
+function listAssemblyOrders() {
+  return db
+    .prepare(
+      `SELECT ao.*, p.nombre as productoTerminadoNombre, u.name as userName
+       FROM assembly_orders ao
+       LEFT JOIN products p ON p.id = ao.productoTerminadoId
+       LEFT JOIN users u ON u.id = ao.userId
+       ORDER BY ao.date DESC`
+    )
+    .all()
+}
+
 export {
   payments,
   orderStates,
@@ -941,5 +1105,10 @@ export {
   addOrderPayment,
   getOrderPayments,
   getOrderPaymentSummary,
-  getClientResumen360
+  getClientResumen360,
+  getBom,
+  setBom,
+  checkAssemblyAvailability,
+  executeAssemblyOrder,
+  listAssemblyOrders
 }

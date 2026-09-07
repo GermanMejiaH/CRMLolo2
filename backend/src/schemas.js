@@ -31,15 +31,47 @@ export const productSchema = z
   .object({
     nombre: z.string().min(1, "El nombre del producto es obligatorio").max(200),
     descripcion: z.string().nullable().optional(),
-    precioMinimo: z.coerce.number().min(0, "El precio mínimo debe ser mayor o igual a 0"),
-    precioMaximo: z.coerce.number().min(0, "El precio máximo debe ser mayor o igual a 0"),
-    stockActual: z.coerce.number().int().min(0, "El stock actual debe ser mayor o igual a 0").optional(),
-    stockMinimo: z.coerce.number().int().min(0, "El stock mínimo debe ser mayor o igual a 0").optional()
+    precioMinimo: z.coerce.number().min(0, "El precio mínimo debe ser mayor o igual a 0").optional().default(0),
+    precioMaximo: z.coerce.number().min(0, "El precio máximo debe ser mayor o igual a 0").optional().default(0),
+    stockActual: z.coerce.number().min(0, "El stock actual debe ser mayor o igual a 0").optional(),
+    stockMinimo: z.coerce.number().min(0, "El stock mínimo debe ser mayor o igual a 0").optional(),
+    tipo: z.enum(["producto_terminado", "materia_prima"]).optional().default("producto_terminado"),
+    costoUnitario: z.coerce.number().min(0, "El costo unitario debe ser mayor o igual a 0").optional(),
+    unidadMedida: z.string().optional().default("unidades")
   })
-  .refine((data) => data.precioMinimo <= data.precioMaximo, {
-    message: "El precio mínimo no puede ser mayor que el precio máximo",
-    path: ["precioMinimo"]
-  })
+  .refine(
+    (data) => {
+      if (data.tipo === "materia_prima") return true
+      return (data.precioMinimo || 0) <= (data.precioMaximo || 0)
+    },
+    {
+      message: "El precio mínimo no puede ser mayor que el precio máximo",
+      path: ["precioMinimo"]
+    }
+  )
+
+/**
+ * Schema de validación para receta de ensamblado (BOM)
+ */
+export const bomSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        materiaPrimaId: z.coerce.number().int().positive("ID de materia prima inválido"),
+        cantidadRequerida: z.coerce.number().positive("La cantidad requerida debe ser mayor a 0")
+      })
+    )
+    .min(1, "Debe especificar al menos una materia prima / insumo en la receta")
+})
+
+/**
+ * Schema de validación para ejecutar una orden de producción / ensamblado
+ */
+export const assemblyOrderSchema = z.object({
+  productoTerminadoId: z.coerce.number().int().positive("ID de producto terminado inválido"),
+  cantidadProducida: z.coerce.number().int().positive("La cantidad a producir debe ser un número entero positivo"),
+  notas: z.string().nullable().optional()
+})
 
 /**
  * Schema de validación para un ítem individual de un pedido

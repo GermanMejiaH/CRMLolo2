@@ -201,3 +201,43 @@ export function crearAbono(token, orderId, payload) {
 export function getClienteResumen360(token, clienteId) {
   return request(`/clientes/${clienteId}/resumen-360`, { token })
 }
+
+export function getBom(token, productoId) {
+  return request(`/bom/${productoId}`, { token })
+}
+
+export function setBom(token, productoId, items) {
+  return request(`/bom/${productoId}`, {
+    method: "POST",
+    token,
+    body: { items }
+  })
+}
+
+export function verificarEnsamblado(token, productoTerminadoId, cantidadProducida) {
+  const payload =
+    typeof productoTerminadoId === "object"
+      ? productoTerminadoId
+      : { productoTerminadoId: Number(productoTerminadoId), cantidadProducida: Number(cantidadProducida) }
+  return request("/produccion/verificar", {
+    method: "POST",
+    token,
+    body: payload
+  })
+}
+
+export function ejecutarEnsamblado(token, productoTerminadoId, cantidadProducida, notas) {
+  const payload =
+    typeof productoTerminadoId === "object"
+      ? productoTerminadoId
+      : { productoTerminadoId: Number(productoTerminadoId), cantidadProducida: Number(cantidadProducida), notas }
+  return request("/produccion/ensamblar", {
+    method: "POST",
+    token,
+    body: payload
+  })
+}
+
+export function getHistorialProduccion(token) {
+  return request("/produccion/historial", { token })
+}

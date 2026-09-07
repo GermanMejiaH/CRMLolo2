@@ -199,7 +199,7 @@ export default function Pedidos({ token }) {
     try {
       const [c, p, o, opts] = await Promise.all([
         getClientes(token),
-        getProductos(token),
+        getProductos(token, { tipo: "producto_terminado" }),
         getPedidosFiltered(token, { from, to, estado, metodoPago }),
         getOptions(token)
       ])

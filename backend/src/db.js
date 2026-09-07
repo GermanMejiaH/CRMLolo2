@@ -132,6 +132,30 @@ CREATE TABLE IF NOT EXISTS order_payments (
   FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE,
   FOREIGN KEY (userId) REFERENCES users(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS bom_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  productoTerminadoId INTEGER NOT NULL,
+  materiaPrimaId INTEGER NOT NULL,
+  cantidadRequerida REAL NOT NULL,
+  createdAt INTEGER NOT NULL,
+  FOREIGN KEY (productoTerminadoId) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (materiaPrimaId) REFERENCES products(id) ON DELETE RESTRICT,
+  UNIQUE(productoTerminadoId, materiaPrimaId)
+);
+
+CREATE TABLE IF NOT EXISTS assembly_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  productoTerminadoId INTEGER NOT NULL,
+  cantidadProducida INTEGER NOT NULL,
+  costoTotalProduccion INTEGER NOT NULL,
+  costoUnitario INTEGER NOT NULL,
+  date INTEGER NOT NULL,
+  userId INTEGER,
+  notas TEXT,
+  FOREIGN KEY (productoTerminadoId) REFERENCES products(id) ON DELETE RESTRICT,
+  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE SET NULL
+);
 `)
 
 db.exec(`
@@ -142,6 +166,8 @@ CREATE INDEX IF NOT EXISTS idx_products_nombre ON products(nombre);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_client_product_prices ON client_product_prices(clientId, productId);
 CREATE INDEX IF NOT EXISTS idx_order_items_orderId ON order_items(orderId);
 CREATE INDEX IF NOT EXISTS idx_order_payments_orderId ON order_payments(orderId);
+CREATE INDEX IF NOT EXISTS idx_bom_items_ptId ON bom_items(productoTerminadoId);
+CREATE INDEX IF NOT EXISTS idx_assembly_orders_ptId ON assembly_orders(productoTerminadoId);
 `)
 
 function fkList(table) {
@@ -223,4 +249,18 @@ function hasColumn(table, name) {
 if (!hasColumn("products", "active")) {
   db.exec("ALTER TABLE products ADD COLUMN active INTEGER")
   db.exec("UPDATE products SET active = 1 WHERE active IS NULL")
+}
+
+if (!hasColumn("products", "tipo")) {
+  db.exec("ALTER TABLE products ADD COLUMN tipo TEXT DEFAULT 'producto_terminado'")
+  db.exec("UPDATE products SET tipo = 'producto_terminado' WHERE tipo IS NULL")
+}
+
+if (!hasColumn("products", "costoUnitario")) {
+  db.exec("ALTER TABLE products ADD COLUMN costoUnitario INTEGER DEFAULT 0")
+}
+
+if (!hasColumn("products", "unidadMedida")) {
+  db.exec("ALTER TABLE products ADD COLUMN unidadMedida TEXT DEFAULT 'unidades'")
+  db.exec("UPDATE products SET unidadMedida = 'unidades' WHERE unidadMedida IS NULL")
 }

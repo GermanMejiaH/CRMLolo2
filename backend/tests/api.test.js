@@ -378,4 +378,65 @@ test("Pruebas de integración API Express con base temporal aislada", async (t) 
     assert.ok(Array.isArray(c360.topProducts))
     assert.ok(Array.isArray(c360.recentOrders))
   })
+
+  await t.test("Flujo completo de Producción y Ensamblado con Recetas BOM (API)", async () => {
+    // 1. Crear materia prima (Placa China)
+    const matRes = await fetch(`${baseUrl}/productos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        nombre: "Cable de Cobre 2mm",
+        stockActual: 50,
+        stockMinimo: 5,
+        tipo: "materia_prima",
+        costoUnitario: 15000,
+        unidadMedida: "metros"
+      })
+    })
+    assert.equal(matRes.status, 201)
+    const mat = await matRes.json()
+    assert.equal(mat.tipo, "materia_prima")
+    assert.equal(mat.unidadMedida, "metros")
+
+    // 2. Configurar Receta (BOM) para Producto Terminado ID 1 (ej: 1x Placa por unidad)
+    const bomRes = await fetch(`${baseUrl}/bom/1`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        items: [{ materiaPrimaId: mat.id, cantidadRequerida: 1 }]
+      })
+    })
+    assert.equal(bomRes.status, 200)
+    const bomJson = await bomRes.json()
+    assert.equal(bomJson.length, 1)
+
+    // 3. Pre-verificar factibilidad de ensamblado de 10 unidades
+    const verifyRes = await fetch(`${baseUrl}/produccion/verificar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ productoTerminadoId: 1, cantidadProducida: 10 })
+    })
+    assert.equal(verifyRes.status, 200)
+    const verifyJson = await verifyRes.json()
+    assert.equal(verifyJson.available, true)
+    assert.equal(verifyJson.unitCost, 15000)
+
+    // 4. Ejecutar orden de ensamblado de 10 unidades
+    const assemblyRes = await fetch(`${baseUrl}/produccion/ensamblar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ productoTerminadoId: 1, cantidadProducida: 10, notas: "Lote de prueba" })
+    })
+    assert.equal(assemblyRes.status, 201)
+    const assemblyJson = await assemblyRes.json()
+    assert.equal(assemblyJson.order.cantidadProducida, 10)
+
+    // 5. Verificar historial de producción
+    const historyRes = await fetch(`${baseUrl}/produccion/historial`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    assert.equal(historyRes.status, 200)
+    const historyJson = await historyRes.json()
+    assert.ok(historyJson.length >= 1)
+  })
 })

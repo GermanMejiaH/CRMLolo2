@@ -47,10 +47,23 @@ import {
   addOrderPayment,
   getOrderPayments,
   getOrderPaymentSummary,
-  getClientResumen360
+  getClientResumen360,
+  getBom,
+  setBom,
+  checkAssemblyAvailability,
+  executeAssemblyOrder,
+  listAssemblyOrders
 } from "./store.js"
 
-import { validate, clientSchema, productSchema, orderSchema, abonoSchema } from "./schemas.js"
+import {
+  validate,
+  clientSchema,
+  productSchema,
+  orderSchema,
+  abonoSchema,
+  bomSchema,
+  assemblyOrderSchema
+} from "./schemas.js"
 import config from "./config.js"
 
 const app = express()
@@ -335,31 +348,88 @@ app.delete("/clientes/:clientId/precios/:productId", auth, allowRoles("Admin", "
 })
 
 app.get("/productos", auth, (req, res) => {
-  const { q, page, limit, includeInactive } = req.query
+  const { q, page, limit, includeInactive, tipo } = req.query
   if (page && limit) {
     const p = Math.max(1, Number(page))
     const l = Math.max(1, Number(limit))
     const offset = (p - 1) * l
-    const items = listProducts({ q, limit: l, offset, includeInactive: String(includeInactive) === "true" })
-    const total = countProducts({ q, includeInactive: String(includeInactive) === "true" })
+    const items = listProducts({ q, limit: l, offset, includeInactive: String(includeInactive) === "true", tipo })
+    const total = countProducts({ q, includeInactive: String(includeInactive) === "true", tipo })
     res.json({ items, total })
   } else {
-    const data = listProducts({ q, includeInactive: String(includeInactive) === "true" })
+    const data = listProducts({ q, includeInactive: String(includeInactive) === "true", tipo })
     res.json(data)
   }
 })
 
 app.post("/productos", auth, allowRoles("Admin", "Operador"), validate(productSchema), (req, res) => {
-  const { nombre, descripcion, precioMinimo, precioMaximo, stockActual, stockMinimo } = req.body
+  const {
+    nombre,
+    descripcion,
+    precioMinimo,
+    precioMaximo,
+    stockActual,
+    stockMinimo,
+    tipo,
+    costoUnitario,
+    unidadMedida
+  } = req.body
   const p = addProduct({
     nombre,
     descripcion,
     precioMinimo,
     precioMaximo,
     stockActual: stockActual ?? 0,
-    stockMinimo: stockMinimo ?? 0
+    stockMinimo: stockMinimo ?? 0,
+    tipo: tipo || "producto_terminado",
+    costoUnitario: costoUnitario ?? 0,
+    unidadMedida: unidadMedida || "unidades"
   })
   res.status(201).json(p)
+})
+
+app.get("/bom/:id", auth, (req, res) => {
+  const id = Number(req.params.id)
+  const items = getBom(id)
+  res.json(items)
+})
+
+app.post("/bom/:id", auth, allowRoles("Admin", "Operador"), validate(bomSchema), (req, res) => {
+  const id = Number(req.params.id)
+  try {
+    const updated = setBom(id, req.body.items)
+    res.json(updated)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.post("/produccion/verificar", auth, (req, res) => {
+  const { productoTerminadoId, cantidadProducida } = req.body || {}
+  if (!productoTerminadoId || !cantidadProducida) {
+    return res.status(400).json({ error: "missing_params" })
+  }
+  try {
+    const check = checkAssemblyAvailability(Number(productoTerminadoId), Number(cantidadProducida))
+    res.json(check)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.post("/produccion/ensamblar", auth, allowRoles("Admin", "Operador"), validate(assemblyOrderSchema), (req, res) => {
+  const { productoTerminadoId, cantidadProducida, notas } = req.body
+  try {
+    const result = executeAssemblyOrder(Number(productoTerminadoId), Number(cantidadProducida), req.user?.sub, notas)
+    res.status(201).json(result)
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.get("/produccion/historial", auth, (req, res) => {
+  const history = listAssemblyOrders()
+  res.json(history)
 })
 
 app.put("/productos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {

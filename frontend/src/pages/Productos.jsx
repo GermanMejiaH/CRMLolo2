@@ -14,7 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
-  RefreshCw
+  RefreshCw,
+  Layers,
+  Cpu
 } from "lucide-react"
 import { useToast } from "../components/ToastContext"
 import Modal from "../components/Modal"
@@ -26,7 +28,9 @@ import {
   updateProducto,
   getProductoMovimientos,
   desactivarProducto,
-  deleteProducto
+  deleteProducto,
+  getBom,
+  setBom
 } from "../api/client"
 
 export default function Productos({ token }) {
@@ -34,11 +38,16 @@ export default function Productos({ token }) {
   const [items, setItems] = useState([])
   const [nuevo, setNuevo] = useState({
     nombre: "",
+    descripcion: "",
     precioMinimo: "",
     precioMaximo: "",
     stockActual: "",
-    stockMinimo: ""
+    stockMinimo: "",
+    tipo: "producto_terminado",
+    costoUnitario: "",
+    unidadMedida: "unidades"
   })
+  const [filterTipo, setFilterTipo] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedTerm, setDebouncedTerm] = useState("")
   const [showForm, setShowForm] = useState(false)
@@ -51,11 +60,18 @@ export default function Productos({ token }) {
     descripcion: "",
     precioMinimo: "",
     precioMaximo: "",
-    stockMinimo: ""
+    stockMinimo: "",
+    tipo: "producto_terminado",
+    costoUnitario: "",
+    unidadMedida: "unidades"
   })
+
+  // Missing helper & modal states
+  const [includeInactive, setIncludeInactive] = useState(false)
+  const [hasInactiveProducts, setHasInactiveProducts] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState(null)
   const [showAdjust, setShowAdjust] = useState(false)
   const [adjustData, setAdjustData] = useState({ diff: "", motivo: "", referencia: "" })
-  const [selectedProduct, setSelectedProduct] = useState(null)
   const [showMovs, setShowMovs] = useState(false)
   const [movs, setMovs] = useState([])
   const [movPage, setMovPage] = useState(1)
@@ -63,17 +79,92 @@ export default function Productos({ token }) {
   const [movTotal, setMovTotal] = useState(0)
   const [movFilterType, setMovFilterType] = useState("")
   const [movFilterText, setMovFilterText] = useState("")
-  const [includeInactive, setIncludeInactive] = useState(false)
-  const [hasInactiveProducts, setHasInactiveProducts] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteProductId, setDeleteProductId] = useState(null)
   const [showPermanentDeleteConfirm, setShowPermanentDeleteConfirm] = useState(false)
   const [permanentDeleteId, setPermanentDeleteId] = useState(null)
 
+  // BOM recipe modal state
+  const [showBom, setShowBom] = useState(false)
+  const [bomItems, setBomItems] = useState([])
+  const [allRawMaterials, setAllRawMaterials] = useState([])
+  const [newBomMatId, setNewBomMatId] = useState("")
+  const [newBomQty, setNewBomQty] = useState("1")
+
+  async function openBomModal(product) {
+    setSelectedProduct(product)
+    setShowBom(true)
+    try {
+      const [recipe, rawList] = await Promise.all([
+        getBom(token, product.id),
+        getProductos(token, { tipo: "materia_prima" })
+      ])
+      setBomItems(recipe || [])
+      setAllRawMaterials(Array.isArray(rawList) ? rawList : rawList.items || [])
+    } catch {
+      addToast("Error al cargar receta BOM", "error")
+    }
+  }
+
+  async function handleAddBomItem() {
+    if (!newBomMatId || !newBomQty || Number(newBomQty) <= 0) {
+      addToast("Selecciona una materia prima y cantidad mayor a 0", "warning")
+      return
+    }
+    const matId = Number(newBomMatId)
+    const qty = Number(newBomQty)
+    const existing = bomItems.find((b) => b.materiaPrimaId === matId)
+    let updated = []
+    if (existing) {
+      updated = bomItems.map((b) => (b.materiaPrimaId === matId ? { ...b, cantidadRequerida: qty } : b))
+    } else {
+      const matObj = allRawMaterials.find((m) => m.id === matId)
+      updated = [
+        ...bomItems,
+        {
+          materiaPrimaId: matId,
+          materiaPrimaNombre: matObj?.nombre || `Materia #${matId}`,
+          cantidadRequerida: qty,
+          costoUnitario: matObj?.costoUnitario || 0
+        }
+      ]
+    }
+    try {
+      const res = await setBom(
+        token,
+        selectedProduct.id,
+        updated.map((u) => ({ materiaPrimaId: u.materiaPrimaId, cantidadRequerida: u.cantidadRequerida }))
+      )
+      setBomItems(res)
+      setNewBomMatId("")
+      setNewBomQty("1")
+      addToast("Insumo agregado a la receta", "success")
+      load()
+    } catch {
+      addToast("Error al guardar en receta", "error")
+    }
+  }
+
+  async function handleRemoveBomItem(matId) {
+    const updated = bomItems.filter((b) => b.materiaPrimaId !== matId)
+    try {
+      const res = await setBom(
+        token,
+        selectedProduct.id,
+        updated.map((u) => ({ materiaPrimaId: u.materiaPrimaId, cantidadRequerida: u.cantidadRequerida }))
+      )
+      setBomItems(res)
+      addToast("Insumo eliminado de la receta", "info")
+      load()
+    } catch {
+      addToast("Error al eliminar de receta", "error")
+    }
+  }
+
   async function load() {
     if (!token) return
     try {
-      const params = { q: debouncedTerm, page, limit, includeInactive }
+      const params = { q: debouncedTerm, page, limit, includeInactive, tipo: filterTipo || undefined }
       const data = await getProductosPaged(token, params)
       const list = Array.isArray(data) ? data : data.items || []
       const tot = Array.isArray(data) ? data.length : Number(data.total || 0)
@@ -98,7 +189,7 @@ export default function Productos({ token }) {
 
   useEffect(() => {
     load()
-  }, [token, page, limit, debouncedTerm, includeInactive])
+  }, [token, page, limit, debouncedTerm, includeInactive, filterTipo])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedTerm(searchTerm), 300)
@@ -106,26 +197,51 @@ export default function Productos({ token }) {
   }, [searchTerm])
 
   async function crear() {
-    if (!nuevo.nombre || !nuevo.precioMinimo || !nuevo.precioMaximo || !nuevo.stockActual || !nuevo.stockMinimo) {
-      addToast("Por favor completa todos los campos", "warning")
+    const isMateriaPrima = nuevo.tipo === "materia_prima"
+    if (!nuevo.nombre || nuevo.stockActual === "" || nuevo.stockMinimo === "") {
+      addToast("Por favor completa los campos requeridos", "warning")
       return
     }
-    try {
-      const payload = {
-        nombre: nuevo.nombre,
-        descripcion: "",
-        precioMinimo: parseFloat(nuevo.precioMinimo),
-        precioMaximo: parseFloat(nuevo.precioMaximo),
-        stockActual: parseInt(nuevo.stockActual),
-        stockMinimo: parseInt(nuevo.stockMinimo)
+
+    if (!isMateriaPrima) {
+      if (nuevo.precioMinimo === "" || nuevo.precioMaximo === "") {
+        addToast("Los productos terminados requieren Precio Mínimo y Máximo de Venta", "warning")
+        return
       }
-      const created = await createProducto(token, payload)
-      setItems([...items, created])
-      setNuevo({ nombre: "", precioMinimo: "", precioMaximo: "", stockActual: "", stockMinimo: "" })
+      if (Number(nuevo.precioMinimo) > Number(nuevo.precioMaximo)) {
+        addToast("El precio mínimo no puede ser mayor al precio máximo", "warning")
+        return
+      }
+    }
+
+    try {
+      await createProducto(token, {
+        nombre: nuevo.nombre,
+        descripcion: nuevo.descripcion,
+        precioMinimo: isMateriaPrima ? 0 : Number(nuevo.precioMinimo || 0),
+        precioMaximo: isMateriaPrima ? 0 : Number(nuevo.precioMaximo || 0),
+        stockActual: Number(nuevo.stockActual),
+        stockMinimo: Number(nuevo.stockMinimo),
+        tipo: nuevo.tipo || "producto_terminado",
+        costoUnitario: Number(nuevo.costoUnitario || 0),
+        unidadMedida: nuevo.unidadMedida || "unidades"
+      })
+      setNuevo({
+        nombre: "",
+        descripcion: "",
+        precioMinimo: "",
+        precioMaximo: "",
+        stockActual: "",
+        stockMinimo: "",
+        tipo: "producto_terminado",
+        costoUnitario: "",
+        unidadMedida: "unidades"
+      })
       setShowForm(false)
-      addToast("Producto creado exitosamente", "success")
-    } catch (e) {
-      addToast("Error al crear producto", "error")
+      load()
+      addToast(isMateriaPrima ? "Materia prima agregada exitosamente" : "Producto creado exitosamente", "success")
+    } catch {
+      addToast("Error al crear el producto", "error")
     }
   }
 
@@ -142,9 +258,12 @@ export default function Productos({ token }) {
     setEditValues({
       nombre: String(item.nombre),
       descripcion: String(item.descripcion || ""),
-      precioMinimo: String(item.precioMinimo),
-      precioMaximo: String(item.precioMaximo),
-      stockMinimo: String(item.stockMinimo)
+      precioMinimo: String(item.precioMinimo || 0),
+      precioMaximo: String(item.precioMaximo || 0),
+      stockMinimo: String(item.stockMinimo || 0),
+      tipo: String(item.tipo || "producto_terminado"),
+      costoUnitario: String(item.costoUnitario || "0"),
+      unidadMedida: String(item.unidadMedida || "unidades")
     })
   }
 
@@ -153,9 +272,12 @@ export default function Productos({ token }) {
       const payload = {
         nombre: editValues.nombre,
         descripcion: editValues.descripcion,
-        precioMinimo: parseFloat(editValues.precioMinimo),
-        precioMaximo: parseFloat(editValues.precioMaximo),
-        stockMinimo: parseInt(editValues.stockMinimo)
+        precioMinimo: parseFloat(editValues.precioMinimo || 0),
+        precioMaximo: parseFloat(editValues.precioMaximo || 0),
+        stockMinimo: parseInt(editValues.stockMinimo || 0),
+        tipo: editValues.tipo || "producto_terminado",
+        costoUnitario: parseFloat(editValues.costoUnitario || 0),
+        unidadMedida: editValues.unidadMedida || "unidades"
       }
       await updateProducto(token, id, payload)
       addToast("Producto actualizado", "success")
@@ -333,6 +455,51 @@ export default function Productos({ token }) {
         </div>
       </div>
 
+      {/* Tipo Filter Tabs */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => {
+            setFilterTipo("")
+            setPage(1)
+          }}
+          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+            filterTipo === ""
+              ? "bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-lg shadow-cyan-500/30"
+              : "bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-white"
+          }`}
+        >
+          Todos ({total})
+        </button>
+        <button
+          onClick={() => {
+            setFilterTipo("producto_terminado")
+            setPage(1)
+          }}
+          className={`px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-all ${
+            filterTipo === "producto_terminado"
+              ? "bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-lg shadow-cyan-500/30"
+              : "bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-white"
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          Productos Terminados
+        </button>
+        <button
+          onClick={() => {
+            setFilterTipo("materia_prima")
+            setPage(1)
+          }}
+          className={`px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-all ${
+            filterTipo === "materia_prima"
+              ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/30"
+              : "bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-white"
+          }`}
+        >
+          <Cpu className="w-4 h-4" />
+          Materias Primas / Insumos
+        </button>
+      </div>
+
       {/* Search and Add Button */}
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="flex-1 relative">
@@ -376,44 +543,102 @@ export default function Productos({ token }) {
       </div>
 
       {/* Create Form */}
-      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Crear Nuevo Producto">
+      <Modal
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        title={nuevo.tipo === "materia_prima" ? "Registrar Materia Prima / Insumo" : "Crear Nuevo Producto Terminado"}
+      >
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Tipo de Ítem</label>
+            <select
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+              value={nuevo.tipo}
+              onChange={(e) => setNuevo({ ...nuevo, tipo: e.target.value })}
+            >
+              <option value="producto_terminado">Producto Terminado (Venta a clientes)</option>
+              <option value="materia_prima">Materia Prima / Insumo (Uso interno / China / Local)</option>
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Nombre</label>
             <input
               className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-              placeholder="Nombre del producto"
+              placeholder={
+                nuevo.tipo === "materia_prima" ? "Ej: Cable de Cobre 2mm, Estaño 60/40" : "Ej: Módulo XR-2000"
+              }
               value={nuevo.nombre}
               onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Precio Mínimo</label>
-              <input
-                type="number"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                placeholder="0"
-                value={nuevo.precioMinimo}
-                onChange={(e) => setNuevo({ ...nuevo, precioMinimo: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Precio Máximo</label>
-              <input
-                type="number"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                placeholder="0"
-                value={nuevo.precioMaximo}
-                onChange={(e) => setNuevo({ ...nuevo, precioMaximo: e.target.value })}
-              />
-            </div>
-          </div>
+          {nuevo.tipo === "materia_prima" ? (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-1">Unidad de Medida</label>
+                  <select
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    value={nuevo.unidadMedida}
+                    onChange={(e) => setNuevo({ ...nuevo, unidadMedida: e.target.value })}
+                  >
+                    <option value="unidades">Unidades (unid)</option>
+                    <option value="metros">Metros (m)</option>
+                    <option value="gramos">Gramos (g)</option>
+                    <option value="kilogramos">Kilogramos (kg)</option>
+                    <option value="litros">Litros (L)</option>
+                    <option value="mililitros">Mililitros (mL)</option>
+                    <option value="rollos">Rollos</option>
+                    <option value="paquetes">Paquetes</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-1">
+                    Costo Unitario ($ / {nuevo.unidadMedida || "unidad"})
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    placeholder="0"
+                    value={nuevo.costoUnitario}
+                    onChange={(e) => setNuevo({ ...nuevo, costoUnitario: e.target.value })}
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-1">Precio Mínimo de Venta ($)</label>
+                  <input
+                    type="number"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    placeholder="0"
+                    value={nuevo.precioMinimo}
+                    onChange={(e) => setNuevo({ ...nuevo, precioMinimo: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-1">Precio Máximo de Venta ($)</label>
+                  <input
+                    type="number"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    placeholder="0"
+                    value={nuevo.precioMaximo}
+                    onChange={(e) => setNuevo({ ...nuevo, precioMaximo: e.target.value })}
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Stock Actual</label>
+              <label className="block text-sm font-medium text-slate-400 mb-1">
+                Stock Actual ({nuevo.tipo === "materia_prima" ? nuevo.unidadMedida || "unid" : "unid"})
+              </label>
               <input
                 type="number"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
@@ -423,7 +648,9 @@ export default function Productos({ token }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Stock Mínimo</label>
+              <label className="block text-sm font-medium text-slate-400 mb-1">
+                Stock Mínimo ({nuevo.tipo === "materia_prima" ? nuevo.unidadMedida || "unid" : "unid"})
+              </label>
               <input
                 type="number"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
@@ -445,7 +672,7 @@ export default function Productos({ token }) {
               onClick={crear}
               className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 text-white rounded-lg shadow-lg shadow-cyan-500/20 transition-all transform hover:scale-105"
             >
-              Crear Producto
+              {nuevo.tipo === "materia_prima" ? "Guardar Materia Prima" : "Crear Producto Terminado"}
             </button>
           </div>
         </div>
@@ -458,6 +685,8 @@ export default function Productos({ token }) {
             <thead className="bg-slate-900/50">
               <tr className="border-b border-cyan-500/30">
                 <th className="text-left p-4 text-cyan-400 font-semibold">Producto</th>
+                <th className="text-left p-4 text-cyan-400 font-semibold">Tipo</th>
+                <th className="text-left p-4 text-cyan-400 font-semibold">Costo / Margen</th>
                 <th className="text-left p-4 text-cyan-400 font-semibold">Precio Rango</th>
                 <th className="text-left p-4 text-cyan-400 font-semibold">Stock Actual</th>
                 <th className="text-left p-4 text-cyan-400 font-semibold">Stock Mínimo</th>
@@ -468,7 +697,7 @@ export default function Productos({ token }) {
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="text-center p-8 text-gray-400">
+                  <td colSpan="8" className="text-center p-8 text-gray-400">
                     {hasInactiveProducts && !includeInactive && !searchTerm ? (
                       <div className="py-4">
                         <Package className="w-12 h-12 text-cyan-400/60 mx-auto mb-3" />
@@ -495,25 +724,36 @@ export default function Productos({ token }) {
               ) : (
                 filteredItems.map((item) => {
                   const status = getStockStatus(item.stockActual, item.stockMinimo)
+                  const isMateriaPrima = item.tipo === "materia_prima"
+                  const costo = item.costoUnitario || 0
+                  const margenMin = !isMateriaPrima && item.precioMinimo ? item.precioMinimo - costo : null
+
                   return (
-                    <tr
-                      key={item.id}
-                      className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-all cursor-pointer"
-                    >
+                    <tr key={item.id} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-all">
                       <td className="p-4">
                         <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-purple-500 rounded-lg flex items-center justify-center">
-                            <Package className="w-5 h-5 text-white" />
+                          <div
+                            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                              isMateriaPrima
+                                ? "bg-gradient-to-br from-amber-500 to-orange-600"
+                                : "bg-gradient-to-br from-cyan-500 to-purple-500"
+                            }`}
+                          >
+                            {isMateriaPrima ? (
+                              <Cpu className="w-5 h-5 text-white" />
+                            ) : (
+                              <Package className="w-5 h-5 text-white" />
+                            )}
                           </div>
                           {editingId === item.id ? (
                             <div className="flex flex-col gap-2">
                               <input
-                                className="bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                                className="bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm"
                                 value={editValues.nombre}
                                 onChange={(e) => setEditValues({ ...editValues, nombre: e.target.value })}
                               />
                               <input
-                                className="bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                                className="bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm"
                                 placeholder="Descripción"
                                 value={editValues.descripcion}
                                 onChange={(e) => setEditValues({ ...editValues, descripcion: e.target.value })}
@@ -534,132 +774,220 @@ export default function Productos({ token }) {
                           )}
                         </div>
                       </td>
+
+                      {/* Tipo Badge */}
+                      <td className="p-4">
+                        {editingId === item.id ? (
+                          <select
+                            className="bg-slate-900 border border-slate-700 rounded p-1 text-white text-xs"
+                            value={editValues.tipo}
+                            onChange={(e) => setEditValues({ ...editValues, tipo: e.target.value })}
+                          >
+                            <option value="producto_terminado">Producto Terminado</option>
+                            <option value="materia_prima">Materia Prima</option>
+                          </select>
+                        ) : isMateriaPrima ? (
+                          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 inline-flex items-center gap-1">
+                            <Cpu className="w-3 h-3" /> Materia Prima
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 inline-flex items-center gap-1">
+                            <Package className="w-3 h-3" /> Terminado
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Costo / Margen */}
                       <td className="p-4 text-gray-300">
                         {editingId === item.id ? (
-                          <div className="flex gap-2">
+                          <div className="flex flex-col gap-1">
                             <input
                               type="number"
-                              className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white"
-                              value={editValues.precioMinimo}
-                              onChange={(e) => setEditValues({ ...editValues, precioMinimo: e.target.value })}
+                              className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white text-xs"
+                              placeholder="Costo"
+                              value={editValues.costoUnitario}
+                              onChange={(e) => setEditValues({ ...editValues, costoUnitario: e.target.value })}
                             />
-                            <input
-                              type="number"
-                              className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white"
-                              value={editValues.precioMaximo}
-                              onChange={(e) => setEditValues({ ...editValues, precioMaximo: e.target.value })}
-                            />
+                            {editValues.tipo === "materia_prima" && (
+                              <select
+                                className="bg-slate-900 border border-slate-700 rounded p-1 text-white text-xs"
+                                value={editValues.unidadMedida}
+                                onChange={(e) => setEditValues({ ...editValues, unidadMedida: e.target.value })}
+                              >
+                                <option value="unidades">unid</option>
+                                <option value="metros">m</option>
+                                <option value="gramos">g</option>
+                                <option value="kilogramos">kg</option>
+                                <option value="litros">L</option>
+                                <option value="mililitros">mL</option>
+                                <option value="rollos">rollos</option>
+                                <option value="paquetes">paquetes</option>
+                              </select>
+                            )}
                           </div>
                         ) : (
+                          <div className="flex flex-col text-xs">
+                            <span className="text-slate-300 font-semibold">
+                              Costo: ${costo.toLocaleString()} / {item.unidadMedida || "unid"}
+                            </span>
+                            {margenMin !== null && (
+                              <span className={`mt-0.5 ${margenMin >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                Margen Mín: ${margenMin.toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Precio Rango */}
+                      <td className="p-4 text-gray-300">
+                        {editingId === item.id ? (
+                          editValues.tipo === "materia_prima" ? (
+                            <span className="text-xs text-slate-500 italic">No aplica</span>
+                          ) : (
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                className="w-20 bg-slate-900 border border-slate-700 rounded p-1 text-white text-xs"
+                                value={editValues.precioMinimo}
+                                onChange={(e) => setEditValues({ ...editValues, precioMinimo: e.target.value })}
+                              />
+                              <input
+                                type="number"
+                                className="w-20 bg-slate-900 border border-slate-700 rounded p-1 text-white text-xs"
+                                value={editValues.precioMaximo}
+                                onChange={(e) => setEditValues({ ...editValues, precioMaximo: e.target.value })}
+                              />
+                            </div>
+                          )
+                        ) : isMateriaPrima ? (
+                          <span className="text-xs text-slate-500 italic">Uso interno (N/A)</span>
+                        ) : (
                           <div className="flex flex-col">
-                            <span className="text-sm text-gray-400">
+                            <span className="text-sm text-gray-300 font-medium">
                               Min: ${(item.precioMinimo || 0).toLocaleString()}
                             </span>
-                            <span className="text-sm text-gray-400">
+                            <span className="text-xs text-gray-400">
                               Max: ${(item.precioMaximo || 0).toLocaleString()}
                             </span>
                           </div>
                         )}
                       </td>
+
+                      {/* Stock Actual */}
                       <td className="p-4">
-                        <span className="text-white font-semibold text-lg">{item.stockActual}</span>
+                        <span className="text-white font-semibold text-lg">{item.stockActual}</span>{" "}
+                        <span className="text-xs text-cyan-300 font-normal">{item.unidadMedida || "unid"}</span>
                       </td>
+
+                      {/* Stock Mínimo */}
                       <td className="p-4 text-gray-300">
                         {editingId === item.id ? (
                           <input
                             type="number"
-                            className="w-24 bg-slate-900 border border-slate-700 rounded p-1 text-white"
+                            className="w-20 bg-slate-900 border border-slate-700 rounded p-1 text-white text-xs"
                             value={editValues.stockMinimo}
                             onChange={(e) => setEditValues({ ...editValues, stockMinimo: e.target.value })}
                           />
                         ) : (
-                          item.stockMinimo
+                          `${item.stockMinimo} ${item.unidadMedida || "unid"}`
                         )}
                       </td>
+
+                      {/* Estado */}
                       <td className="p-4">
                         {status === "critical" && (
-                          <div className="flex items-center gap-2 bg-red-500/20 border border-red-500 rounded-lg px-3 py-1 w-fit">
-                            <AlertTriangle className="w-4 h-4 text-red-400" />
-                            <span className="text-red-400 font-semibold text-sm">Crítico</span>
+                          <div className="flex items-center gap-1.5 bg-red-500/20 border border-red-500/50 rounded-lg px-2.5 py-1 w-fit">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                            <span className="text-red-400 font-semibold text-xs">Crítico</span>
                           </div>
                         )}
                         {status === "warning" && (
-                          <div className="flex items-center gap-2 bg-yellow-500/20 border border-yellow-500 rounded-lg px-3 py-1 w-fit">
-                            <TrendingDown className="w-4 h-4 text-yellow-400" />
-                            <span className="text-yellow-400 font-semibold text-sm">Bajo</span>
+                          <div className="flex items-center gap-1.5 bg-yellow-500/20 border border-yellow-500/50 rounded-lg px-2.5 py-1 w-fit">
+                            <TrendingDown className="w-3.5 h-3.5 text-yellow-400" />
+                            <span className="text-yellow-400 font-semibold text-xs">Bajo</span>
                           </div>
                         )}
                         {status === "good" && (
-                          <div className="flex items-center gap-2 bg-green-500/20 border border-green-500 rounded-lg px-3 py-1 w-fit">
-                            <TrendingUp className="w-4 h-4 text-green-400" />
-                            <span className="text-green-400 font-semibold text-sm">Óptimo</span>
+                          <div className="flex items-center gap-1.5 bg-green-500/20 border border-green-500/50 rounded-lg px-2.5 py-1 w-fit">
+                            <TrendingUp className="w-3.5 h-3.5 text-green-400" />
+                            <span className="text-green-400 font-semibold text-xs">Óptimo</span>
                           </div>
                         )}
                       </td>
+
+                      {/* Acciones */}
                       <td className="p-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {editingId === item.id ? (
                             <>
                               <button
-                                className="px-2 py-1 bg-green-600 text-white rounded flex items-center gap-1"
+                                className="px-2 py-1 bg-green-600 text-white text-xs rounded flex items-center gap-1"
                                 onClick={() => saveEdit(item.id)}
                               >
-                                <Save className="w-4 h-4" /> Guardar
+                                <Save className="w-3.5 h-3.5" /> Guardar
                               </button>
                               <button
-                                className="px-2 py-1 bg-slate-700 text-white rounded flex items-center gap-1"
+                                className="px-2 py-1 bg-slate-700 text-white text-xs rounded flex items-center gap-1"
                                 onClick={cancelEdit}
                               >
-                                <X className="w-4 h-4" /> Cancelar
+                                <X className="w-3.5 h-3.5" /> Cancelar
                               </button>
                             </>
                           ) : (
                             <>
-                              <>
-                                {item.active === 0 ? (
-                                  <>
+                              {item.active === 0 ? (
+                                <>
+                                  <button
+                                    className="px-2 py-1 border border-green-500 text-green-400 text-xs rounded flex items-center gap-1 hover:bg-green-500/10 transition-colors"
+                                    onClick={() => reactivar(item.id)}
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" /> Reactivar
+                                  </button>
+                                  <button
+                                    className="px-2 py-1 border border-red-500 text-red-400 text-xs rounded flex items-center gap-1 hover:bg-red-500/10 transition-colors"
+                                    onClick={() => promptEliminarDefinitivamente(item.id)}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" /> Eliminar Definitivamente
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {!isMateriaPrima && (
                                     <button
-                                      className="px-2 py-1 border border-green-500 text-green-400 rounded flex items-center gap-1 hover:bg-green-500/10 transition-colors"
-                                      onClick={() => reactivar(item.id)}
+                                      className="px-2 py-1 border border-cyan-500 text-cyan-400 text-xs rounded flex items-center gap-1 hover:bg-cyan-500/10 transition-colors"
+                                      onClick={() => openBomModal(item)}
+                                      title="Configurar Receta BOM de Ensamblado"
                                     >
-                                      <RefreshCw className="w-4 h-4" /> Reactivar
+                                      <Layers className="w-3.5 h-3.5" /> Receta BOM
                                     </button>
-                                    <button
-                                      className="px-2 py-1 border border-red-500 text-red-400 rounded flex items-center gap-1 hover:bg-red-500/10 transition-colors"
-                                      onClick={() => promptEliminarDefinitivamente(item.id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" /> Eliminar Definitivamente
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button
-                                      className="px-2 py-1 border border-cyan-500 text-cyan-400 rounded"
-                                      onClick={() => beginEdit(item)}
-                                    >
-                                      <Edit2 className="w-4 h-4" /> Editar
-                                    </button>
-                                    <button
-                                      className="px-2 py-1 border border-purple-500 text-purple-400 rounded"
-                                      onClick={() => openAdjust(item)}
-                                    >
-                                      Ajustar
-                                    </button>
-                                    <button
-                                      className="px-2 py-1 border border-yellow-500 text-yellow-400 rounded"
-                                      onClick={() => openMovs(item)}
-                                    >
-                                      Movimientos
-                                    </button>
-                                    <button
-                                      className="px-2 py-1 border border-red-500 text-red-400 rounded"
-                                      onClick={() => promptDesactivar(item.id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" /> Desactivar
-                                    </button>
-                                  </>
-                                )}
-                              </>
+                                  )}
+                                  <button
+                                    className="px-2 py-1 border border-slate-600 text-slate-300 text-xs rounded hover:bg-slate-700/50"
+                                    onClick={() => beginEdit(item)}
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" /> Editar
+                                  </button>
+                                  <button
+                                    className="px-2 py-1 border border-purple-500 text-purple-400 text-xs rounded hover:bg-purple-500/10"
+                                    onClick={() => openAdjust(item)}
+                                  >
+                                    Ajustar
+                                  </button>
+                                  <button
+                                    className="px-2 py-1 border border-yellow-500 text-yellow-400 text-xs rounded hover:bg-yellow-500/10"
+                                    onClick={() => openMovs(item)}
+                                  >
+                                    Movs
+                                  </button>
+                                  <button
+                                    className="px-2 py-1 border border-red-500 text-red-400 text-xs rounded hover:bg-red-500/10"
+                                    onClick={() => promptDesactivar(item.id)}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
                             </>
                           )}
                         </div>
@@ -927,6 +1255,133 @@ export default function Productos({ token }) {
                 <option value={50}>50</option>
               </select>
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* BOM Recipe Modal */}
+      <Modal isOpen={showBom} onClose={() => setShowBom(false)} title={`Receta BOM - ${selectedProduct?.nombre || ""}`}>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Define los insumos y cantidades de materia prima requeridos para ensamblar 1 unidad de{" "}
+            <span className="text-cyan-400 font-semibold">{selectedProduct?.nombre}</span>.
+          </p>
+
+          {/* Current Recipe Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="p-3 text-left">Materia Prima / Insumo</th>
+                  <th className="p-3 text-center">Cant. Req.</th>
+                  <th className="p-3 text-right">Costo Unit.</th>
+                  <th className="p-3 text-right">Subtotal</th>
+                  <th className="p-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bomItems.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="p-4 text-center text-slate-500">
+                      Esta receta aún no tiene insumos configurados.
+                    </td>
+                  </tr>
+                ) : (
+                  bomItems.map((b) => {
+                    const subtotal = (b.cantidadRequerida || 0) * (b.costoUnitario || 0)
+                    return (
+                      <tr key={b.materiaPrimaId} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                        <td className="p-3 font-medium text-white">{b.materiaPrimaNombre}</td>
+                        <td className="p-3 text-center text-cyan-300 font-semibold">
+                          {b.cantidadRequerida} {b.materiaPrimaUnidadMedida || b.unidadMedida || "unid"}
+                        </td>
+                        <td className="p-3 text-right text-slate-400">
+                          ${(b.costoUnitario || 0).toLocaleString()} /{" "}
+                          {b.materiaPrimaUnidadMedida || b.unidadMedida || "unid"}
+                        </td>
+                        <td className="p-3 text-right text-green-400 font-semibold">${subtotal.toLocaleString()}</td>
+                        <td className="p-3 text-center">
+                          <button
+                            onClick={() => handleRemoveBomItem(b.materiaPrimaId)}
+                            className="text-red-400 hover:text-red-300 p-1 rounded"
+                            title="Eliminar de receta"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+              {bomItems.length > 0 && (
+                <tfoot className="bg-slate-950/80 border-t border-slate-800 font-semibold">
+                  <tr>
+                    <td colSpan="3" className="p-3 text-right text-slate-300">
+                      Costo Total Receta BOM (1 Unid):
+                    </td>
+                    <td className="p-3 text-right text-cyan-400 font-bold text-base">
+                      $
+                      {bomItems
+                        .reduce((acc, b) => acc + (b.cantidadRequerida || 0) * (b.costoUnitario || 0), 0)
+                        .toLocaleString()}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {/* Add Insumo Form */}
+          <div className="bg-slate-800/40 p-4 border border-slate-700/50 rounded-lg space-y-3">
+            <h4 className="text-sm font-semibold text-cyan-400">Agregar o Modificar Insumo en Receta</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-slate-400 mb-1">Materia Prima / Insumo</label>
+                <select
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-sm focus:border-cyan-500 focus:outline-none"
+                  value={newBomMatId}
+                  onChange={(e) => setNewBomMatId(e.target.value)}
+                >
+                  <option value="">-- Selecciona Materia Prima --</option>
+                  {allRawMaterials.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.nombre} (Stock: {m.stockActual} {m.unidadMedida || "unid"} | Costo: ${m.costoUnitario || 0}/
+                      {m.unidadMedida || "unid"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Cantidad por Unidad</label>
+                <input
+                  type="number"
+                  min="1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-sm focus:border-cyan-500 focus:outline-none"
+                  value={newBomQty}
+                  onChange={(e) => setNewBomQty(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={handleAddBomItem}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 text-white text-sm font-medium rounded-lg shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Guardar Insumo en Receta
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-800">
+            <button
+              onClick={() => setShowBom(false)}
+              className="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+            >
+              Cerrar Receta
+            </button>
           </div>
         </div>
       </Modal>
