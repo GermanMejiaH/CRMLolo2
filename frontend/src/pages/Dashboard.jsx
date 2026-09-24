@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { TrendingUp, ShoppingCart, Users, Package, DollarSign, AlertTriangle, Calendar, Activity } from "lucide-react"
+import { TrendingUp, ShoppingCart, Users, Package, DollarSign, AlertTriangle, Calendar, Activity, Truck } from "lucide-react"
 import {
   LineChart,
   Line,
@@ -15,7 +15,7 @@ import {
   Legend,
   ResponsiveContainer
 } from "recharts"
-import { getDashboard, getProductos } from "../api/client"
+import { getDashboard, getProductos, getAlertasStock } from "../api/client"
 
 export default function Dashboard({ token = "demo-token" }) {
   const [stats, setStats] = useState({
@@ -32,9 +32,15 @@ export default function Dashboard({ token = "demo-token" }) {
   const [metodosPago, setMetodosPago] = useState([])
   const [estadoPedidos, setEstadoPedidos] = useState([])
   const [lowStockProducts, setLowStockProducts] = useState([])
+  const [alertasStock, setAlertasStock] = useState({ alertasCount: 0, items: [] })
 
   useEffect(() => {
     loadDashboardData()
+    if (token) {
+      getAlertasStock(token)
+        .then((res) => setAlertasStock(res || { alertasCount: 0, items: [] }))
+        .catch(() => {})
+    }
   }, [token])
 
   async function loadDashboardData() {
@@ -49,7 +55,10 @@ export default function Dashboard({ token = "demo-token" }) {
       try {
         const prods = await getProductos(token)
         const low = (Array.isArray(prods) ? prods : []).filter(
-          (p) => (p.stockActual || 0) <= (p.stockMinimo || 0) && (p.active == null || p.active)
+          (p) =>
+            (p.stockActual || 0) <= (p.stockMinimo || 0) &&
+            (p.active == null || p.active) &&
+            (p.tipo === "producto_terminado" || !p.tipo)
         )
         setLowStockProducts(low)
       } catch {}
@@ -346,6 +355,80 @@ export default function Dashboard({ token = "demo-token" }) {
           </div>
         </div>
       </div>
+
+      {/* Centro de Alertas de Reordenamiento de Insumos */}
+      {alertasStock.alertasCount > 0 && (
+        <div className="mt-8 bg-slate-800/50 backdrop-blur-sm border border-amber-500/40 rounded-2xl p-6 shadow-xl shadow-amber-500/10">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-slate-700/60 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  Centro de Alertas & Reordenamiento de Insumos
+                  <span className="text-xs bg-amber-500 text-slate-950 font-extrabold px-2.5 py-0.5 rounded-full">
+                    {alertasStock.alertasCount} en riesgo
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Materias primas e insumos por debajo del stock mínimo. Sugerencia de compra/importación calculada.
+                </p>
+              </div>
+            </div>
+            <a
+              href="/compras"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition-all transform hover:scale-[1.02]"
+            >
+              <Truck className="w-4 h-4" /> Registrar Compra / Importación
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {alertasStock.items.map((item) => (
+              <div
+                key={item.productoId}
+                className="bg-slate-900/80 border border-amber-500/30 rounded-xl p-4 space-y-2 hover:border-amber-400 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-200 text-sm truncate">{item.nombre}</span>
+                  <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                    Materia Prima / Insumo
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 pt-1 border-t border-slate-800">
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">Stock Actual:</span>
+                    <span className="font-mono text-red-400 font-bold">
+                      {item.stockActual} {item.unidadMedida}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">Stock Mínimo:</span>
+                    <span className="font-mono text-slate-300">
+                      {item.stockMinimo} {item.unidadMedida}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-slate-950/60 p-2.5 rounded-lg text-xs space-y-1 border border-slate-800">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Sugerencia Reorden:</span>
+                    <span className="font-bold text-emerald-400">
+                      +{item.sugerenciaReorden} {item.unidadMedida}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-400">
+                    <span>Costo Estimado:</span>
+                    <span className="font-semibold text-slate-200">
+                      ${item.costoEstimadoReorden.toLocaleString("es-CO")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

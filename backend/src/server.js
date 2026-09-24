@@ -57,7 +57,9 @@ import {
   getPurchase,
   listPurchases,
   getKardex,
-  getCapacidadEnsambladoTeorica
+  getCapacidadEnsambladoTeorica,
+  getReporteRentabilidad,
+  getAlertasStockYReorden
 } from "./store.js"
 
 import {
@@ -520,7 +522,7 @@ app.get("/pedidos/:id", auth, (req, res) => {
 app.delete("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const id = Number(req.params.id)
   try {
-    deleteOrder(id)
+    deleteOrder(id, req.user?.sub)
     res.json({ ok: true })
   } catch (e) {
     res.status(400).json({ error: e.message })
@@ -566,14 +568,10 @@ app.put("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const body = req.body || {}
   const before = getOrder(id)
   if (!before) return res.status(404).json({ error: "not_found" })
-  const updated = updateOrder(id, body)
+  const updated = updateOrder(id, { ...body, userId: req.user?.sub })
   try {
-    addOrderAuditEntry(id, req.user.sub, "actualizado")
+    addOrderAuditEntry(id, req.user?.sub, `Estado actual: ${updated.estado}`)
   } catch {}
-  if (body.estado === "Completado" && before.estado !== "Completado") {
-    const prod = getProduct(before.productoId)
-    adjustStock(prod.id, -before.cantidad, "pedido_completado", String(id), req.user.sub)
-  }
   res.json(updated)
 })
 
@@ -886,6 +884,34 @@ app.get("/reportes/ventas-series", auth, (req, res) => {
   if (breakdown) filters.breakdown = String(breakdown)
   const series = listSalesSeries(filters)
   res.json(series)
+})
+
+app.get("/reportes/rentabilidad", auth, (req, res) => {
+  const { from, to, clienteId, productoId } = req.query
+  function parseDateToTs(v, endOfDay = false) {
+    if (!v) return undefined
+    const asNum = Number(v)
+    if (!Number.isNaN(asNum)) return asNum
+    const d = new Date(String(v))
+    if (Number.isNaN(d.getTime())) return undefined
+    if (endOfDay) d.setHours(23, 59, 59, 999)
+    else d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }
+  const filters = {}
+  const fromTs = parseDateToTs(from, false)
+  const toTs = parseDateToTs(to, true)
+  if (typeof fromTs === "number") filters.from = fromTs
+  if (typeof toTs === "number") filters.to = toTs
+  if (clienteId) filters.clienteId = Number(clienteId)
+  if (productoId) filters.productoId = Number(productoId)
+
+  res.json(getReporteRentabilidad(filters))
+})
+
+app.get("/alertas/stock", auth, (req, res) => {
+  const { tipo } = req.query
+  res.json(getAlertasStockYReorden(tipo || "materia_prima"))
 })
 
 let server = null

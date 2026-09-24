@@ -537,13 +537,14 @@ function addOrder(data) {
   )
 
   const transaction = db.transaction(() => {
+    const estadoInicial = String(data.estado || "Pendiente")
     const info = stmtOrder.run(
       Number(data.clienteId),
       primaryItem.productoId,
       primaryItem.cantidad,
       primaryItem.precioUnitario,
       totalPedido,
-      String(data.estado || "Pendiente"),
+      estadoInicial,
       metodo,
       data.notas || null,
       createdAt
@@ -552,6 +553,21 @@ function addOrder(data) {
 
     for (const item of processedItems) {
       stmtItem.run(orderId, item.productoId, item.cantidad, item.precioUnitario, item.subtotal)
+
+      // Descontar stock del producto si el pedido no nace como Cancelado
+      if (estadoInicial !== "Cancelado") {
+        adjustStock(item.productoId, -item.cantidad, "venta_pedido", String(orderId), data.userId || null)
+        const pUpdated = getProduct(item.productoId)
+        recordKardexMovement(
+          item.productoId,
+          "VENTA",
+          -item.cantidad,
+          pUpdated ? pUpdated.stockActual : 0,
+          `PEDIDO-${orderId}`,
+          data.userId || null,
+          `Venta al generar pedido #${orderId}`
+        )
+      }
     }
 
     db.prepare("INSERT INTO order_audit (orderId, userId, date, observation) VALUES (?,?,?,?)").run(
@@ -571,21 +587,76 @@ function addOrder(data) {
 function updateOrder(id, data) {
   const current = getOrder(id)
   if (!current) return null
-  const updated = { ...current, ...data }
-  const metodo = updated.metodoPago == null ? current.metodoPago : String(updated.metodoPago).trim() || "Efectivo"
-  db.prepare(
-    "UPDATE orders SET clienteId=?, productoId=?, cantidad=?, precioUnitario=?, total=?, estado=?, metodoPago=?, notas=? WHERE id=?"
-  ).run(
-    updated.clienteId,
-    updated.productoId,
-    updated.cantidad,
-    updated.precioUnitario,
-    updated.total,
-    updated.estado,
-    metodo,
-    updated.notas,
-    id
-  )
+
+  const userId = data.userId || null
+  const newEstado = data.estado != null ? String(data.estado) : current.estado
+  const newMetodo = data.metodoPago == null ? current.metodoPago : String(data.metodoPago).trim() || "Efectivo"
+  const newClienteId = data.clienteId != null ? Number(data.clienteId) : current.clienteId
+  const newNotas = data.notas != null ? data.notas : current.notas
+
+  const isOldActive = current.estado !== "Cancelado"
+  const isNewActive = newEstado !== "Cancelado"
+
+  const transaction = db.transaction(() => {
+    // 1. Cambio de estado de activo a Cancelado -> Restaurar stock
+    if (isOldActive && !isNewActive) {
+      const itemsToRestore = current.items && current.items.length > 0
+        ? current.items
+        : [{ productoId: current.productoId, cantidad: current.cantidad }]
+      for (const item of itemsToRestore) {
+        if (item.productoId && item.cantidad > 0) {
+          adjustStock(item.productoId, Number(item.cantidad), "pedido_cancelado", String(id), userId)
+          const pUpdated = getProduct(item.productoId)
+          recordKardexMovement(
+            item.productoId,
+            "CANCELACION_PEDIDO",
+            Number(item.cantidad),
+            pUpdated ? pUpdated.stockActual : 0,
+            `PEDIDO-${id}`,
+            userId,
+            `Restauración de stock por cancelación de pedido #${id}`
+          )
+        }
+      }
+    }
+    // 2. Cambio de estado de Cancelado a activo -> Descontar stock
+    else if (!isOldActive && isNewActive) {
+      const itemsToDeduct = current.items && current.items.length > 0
+        ? current.items
+        : [{ productoId: current.productoId, cantidad: current.cantidad }]
+      for (const item of itemsToDeduct) {
+        if (item.productoId && item.cantidad > 0) {
+          adjustStock(item.productoId, -Number(item.cantidad), "venta_pedido", String(id), userId)
+          const pUpdated = getProduct(item.productoId)
+          recordKardexMovement(
+            item.productoId,
+            "VENTA",
+            -Number(item.cantidad),
+            pUpdated ? pUpdated.stockActual : 0,
+            `PEDIDO-${id}`,
+            userId,
+            `Descuento de stock por reactivación de pedido #${id}`
+          )
+        }
+      }
+    }
+
+    db.prepare(
+      "UPDATE orders SET clienteId=?, productoId=?, cantidad=?, precioUnitario=?, total=?, estado=?, metodoPago=?, notas=? WHERE id=?"
+    ).run(
+      newClienteId,
+      data.productoId ?? current.productoId,
+      data.cantidad ?? current.cantidad,
+      data.precioUnitario ?? current.precioUnitario,
+      data.total ?? current.total,
+      newEstado,
+      newMetodo,
+      newNotas,
+      id
+    )
+  })
+
+  transaction()
   return getOrder(id)
 }
 
@@ -598,8 +669,31 @@ function addOrderAuditEntry(orderId, userId, observation) {
   )
 }
 
-function deleteOrder(id) {
+function deleteOrder(id, userId) {
+  const current = getOrder(id)
+  if (!current) return false
+
   const transaction = db.transaction(() => {
+    if (current.estado !== "Cancelado") {
+      const itemsToRestore = current.items && current.items.length > 0
+        ? current.items
+        : [{ productoId: current.productoId, cantidad: current.cantidad }]
+      for (const item of itemsToRestore) {
+        if (item.productoId && item.cantidad > 0) {
+          adjustStock(item.productoId, Number(item.cantidad), "pedido_eliminado", String(id), userId || null)
+          const pUpdated = getProduct(item.productoId)
+          recordKardexMovement(
+            item.productoId,
+            "ELIMINACION_PEDIDO",
+            Number(item.cantidad),
+            pUpdated ? pUpdated.stockActual : 0,
+            `PEDIDO-${id}`,
+            userId || null,
+            `Restauración de stock por eliminación de pedido #${id}`
+          )
+        }
+      }
+    }
     db.prepare("DELETE FROM order_audit WHERE orderId = ?").run(id)
     db.prepare("DELETE FROM proformas WHERE pedidoId = ?").run(id)
     db.prepare("DELETE FROM order_items WHERE orderId = ?").run(id)
@@ -1281,6 +1375,161 @@ function listAssemblyOrders() {
     .all()
 }
 
+function getReporteRentabilidad(filters = {}) {
+  const { from, to, clienteId, productoId } = filters
+  let sql = `
+    SELECT oi.id, oi.orderId, oi.productoId, oi.cantidad, oi.precioUnitario, oi.subtotal as totalVenta,
+           o.clienteId, o.createdAt, c.nombre as clienteNombre, p.nombre as productoNombre, p.costoUnitario as productoCostoUnitario
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.orderId
+    LEFT JOIN clients c ON c.id = o.clienteId
+    LEFT JOIN products p ON p.id = oi.productoId
+    WHERE o.estado != 'Cancelado'`
+  const params = []
+
+  if (typeof from === "number") {
+    sql += " AND o.createdAt >= ?"
+    params.push(Number(from))
+  }
+  if (typeof to === "number") {
+    sql += " AND o.createdAt <= ?"
+    params.push(Number(to))
+  }
+  if (clienteId) {
+    sql += " AND o.clienteId = ?"
+    params.push(Number(clienteId))
+  }
+  if (productoId) {
+    sql += " AND oi.productoId = ?"
+    params.push(Number(productoId))
+  }
+
+  const items = db.prepare(sql).all(...params)
+
+  let totalVentas = 0
+  let totalCOGS = 0
+
+  const mapProducto = {}
+  const mapCliente = {}
+
+  for (const item of items) {
+    const v = Number(item.totalVenta || 0)
+    totalVentas += v
+
+    const recipe = getBom(item.productoId)
+    let unitCogs = 0
+    if (recipe && recipe.length > 0) {
+      unitCogs = recipe.reduce(
+        (sum, ingredient) => sum + Number(ingredient.cantidadRequerida || 0) * Number(ingredient.costoUnitario || 0),
+        0
+      )
+    } else {
+      unitCogs = Number(item.productoCostoUnitario || 0)
+    }
+
+    const itemCogs = Math.round(unitCogs * Number(item.cantidad || 0))
+    totalCOGS += itemCogs
+    const gananciaItem = v - itemCogs
+
+    const pid = item.productoId
+    if (!mapProducto[pid]) {
+      mapProducto[pid] = {
+        productoId: pid,
+        productoNombre: item.productoNombre,
+        totalUnidades: 0,
+        totalVentas: 0,
+        totalCOGS: 0,
+        gananciaBruta: 0
+      }
+    }
+    mapProducto[pid].totalUnidades += Number(item.cantidad || 0)
+    mapProducto[pid].totalVentas += v
+    mapProducto[pid].totalCOGS += itemCogs
+    mapProducto[pid].gananciaBruta += gananciaItem
+
+    const cid = item.clienteId
+    if (!mapCliente[cid]) {
+      mapCliente[cid] = {
+        clienteId: cid,
+        clienteNombre: item.clienteNombre,
+        totalVentas: 0,
+        totalCOGS: 0,
+        gananciaBruta: 0
+      }
+    }
+    mapCliente[cid].totalVentas += v
+    mapCliente[cid].totalCOGS += itemCogs
+    mapCliente[cid].gananciaBruta += gananciaItem
+  }
+
+  const gananciaBrutaTotal = totalVentas - totalCOGS
+  const margenPromedioPercent = totalVentas > 0 ? Number(((gananciaBrutaTotal / totalVentas) * 100).toFixed(2)) : 0
+
+  const porProducto = Object.values(mapProducto)
+    .map((p) => ({
+      ...p,
+      margenPercent: p.totalVentas > 0 ? Number(((p.gananciaBruta / p.totalVentas) * 100).toFixed(2)) : 0
+    }))
+    .sort((a, b) => b.gananciaBruta - a.gananciaBruta)
+
+  const porCliente = Object.values(mapCliente)
+    .map((c) => ({
+      ...c,
+      margenPercent: c.totalVentas > 0 ? Number(((c.gananciaBruta / c.totalVentas) * 100).toFixed(2)) : 0
+    }))
+    .sort((a, b) => b.gananciaBruta - a.gananciaBruta)
+
+  return {
+    summary: {
+      totalVentas,
+      totalCOGS,
+      gananciaBrutaTotal,
+      margenPromedioPercent
+    },
+    porProducto,
+    porCliente
+  }
+}
+
+function getAlertasStockYReorden(tipoFilter = "materia_prima") {
+  let sql = `SELECT * FROM products WHERE (active = 1 OR active IS NULL) AND stockActual <= stockMinimo`
+  const params = []
+
+  if (tipoFilter && tipoFilter !== "todas") {
+    sql += ` AND tipo = ?`
+    params.push(tipoFilter)
+  }
+
+  sql += ` ORDER BY (stockMinimo - stockActual) DESC`
+
+  const products = db.prepare(sql).all(...params)
+
+  const items = products.map((p) => {
+    const stockActual = Number(p.stockActual || 0)
+    const stockMinimo = Number(p.stockMinimo || 0)
+    const faltanteMinimo = Math.max(0, stockMinimo - stockActual)
+    const sugerenciaReorden = Math.max(faltanteMinimo, stockMinimo * 2 - stockActual)
+
+    return {
+      productoId: p.id,
+      nombre: p.nombre,
+      tipo: p.tipo,
+      unidadMedida: p.unidadMedida || "unidades",
+      stockActual,
+      stockMinimo,
+      costoUnitario: p.costoUnitario || 0,
+      faltanteMinimo,
+      sugerenciaReorden,
+      costoEstimadoReorden: Math.round(sugerenciaReorden * (p.costoUnitario || 0))
+    }
+  })
+
+  return {
+    alertasCount: items.length,
+    items
+  }
+}
+
 export {
   payments,
   orderStates,
@@ -1334,6 +1583,9 @@ export {
   getPurchase,
   listPurchases,
   getKardex,
-  getCapacidadEnsambladoTeorica
+  getCapacidadEnsambladoTeorica,
+  getReporteRentabilidad,
+  getAlertasStockYReorden
 }
+
 

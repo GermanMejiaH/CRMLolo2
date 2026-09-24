@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { FileSpreadsheet, RefreshCw, Calendar, BarChart3 } from "lucide-react"
+import { FileSpreadsheet, RefreshCw, Calendar, BarChart3, DollarSign, TrendingUp, PieChart, AlertCircle } from "lucide-react"
 import { useToast } from "../components/ToastContext"
 import {
   downloadVentasCSV,
@@ -7,7 +7,8 @@ import {
   getReportKpis,
   getReportSeries,
   getPedidosFiltered,
-  getClientes
+  getClientes,
+  getReporteRentabilidad
 } from "../api/client"
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 import * as XLSX from "xlsx"
@@ -247,9 +248,26 @@ export default function Reportes({ token }) {
     setGranularity(g === "month" ? "month" : "day")
     initFromUrl.current = true
   }, [])
+  const [rentabilidad, setRentabilidad] = useState(null)
+  const [loadingRentabilidad, setLoadingRentabilidad] = useState(false)
+
+  async function loadRentabilidad() {
+    if (!token) return
+    setLoadingRentabilidad(true)
+    try {
+      const res = await getReporteRentabilidad(token, { from, to, clienteId: cliente })
+      setRentabilidad(res)
+    } catch {
+      setRentabilidad(null)
+    } finally {
+      setLoadingRentabilidad(false)
+    }
+  }
+
   React.useEffect(() => {
     loadKpis()
     loadSeries()
+    loadRentabilidad()
   }, [token, from, to, estado, metodoPago, cliente, granularity, payments])
   React.useEffect(() => {
     if (Number(kpis.totalVentas || 0) > 0 && (!series || series.length === 0)) {
@@ -550,6 +568,129 @@ export default function Reportes({ token }) {
             </p>
           </div>
         ))}
+      </div>
+
+      {/* Análisis de Rentabilidad Bruta Real (COGS vs Ventas) */}
+      <div className="mt-8 bg-slate-800/50 backdrop-blur-sm border border-emerald-500/30 rounded-2xl p-6 shadow-xl shadow-emerald-500/10 space-y-6">
+        <div className="flex items-center justify-between border-b border-slate-700/60 pb-4">
+          <div className="flex items-center gap-3">
+            <TrendingUp className="w-6 h-6 text-emerald-400" />
+            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
+              Análisis de Rentabilidad Real (Costo BOM / COGS)
+            </h2>
+          </div>
+          <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full font-medium">
+            Utilidad Bruta Calculada con Receta BOM
+          </span>
+        </div>
+
+        {rentabilidad?.summary && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-4">
+              <p className="text-xs text-slate-400">Ventas Totales</p>
+              <p className="text-2xl font-bold text-slate-100">
+                ${Number(rentabilidad.summary.totalVentas).toLocaleString("es-CO")}
+              </p>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-4">
+              <p className="text-xs text-slate-400">Costo Real de Insumos (COGS)</p>
+              <p className="text-2xl font-bold text-amber-400">
+                ${Number(rentabilidad.summary.totalCOGS).toLocaleString("es-CO")}
+              </p>
+            </div>
+            <div className="bg-slate-900/60 border border-emerald-500/30 rounded-xl p-4">
+              <p className="text-xs text-emerald-400 font-medium">Ganancia Bruta Real</p>
+              <p className="text-2xl font-bold text-emerald-400">
+                ${Number(rentabilidad.summary.gananciaBrutaTotal).toLocaleString("es-CO")}
+              </p>
+            </div>
+            <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-4">
+              <p className="text-xs text-cyan-400 font-medium">Margen Bruto Promedio</p>
+              <p className="text-2xl font-bold text-cyan-400">
+                {rentabilidad.summary.margenPromedioPercent}%
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Tablas de Desglose */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Rentabilidad por Producto */}
+          <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-4 space-y-3">
+            <h3 className="font-semibold text-sm text-cyan-400 flex items-center gap-2">
+              <PieChart className="w-4 h-4" /> Rentabilidad por Producto Terminado
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-800 text-slate-400">
+                  <tr>
+                    <th className="p-2">Producto</th>
+                    <th className="p-2">Unid.</th>
+                    <th className="p-2">Venta Total</th>
+                    <th className="p-2">Costo Insumos</th>
+                    <th className="p-2 text-right">Ganancia ($)</th>
+                    <th className="p-2 text-right">Margen (%)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {(rentabilidad?.porProducto || []).length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="p-3 text-center text-slate-500">Sin datos de ventas</td>
+                    </tr>
+                  ) : (
+                    rentabilidad.porProducto.map((p) => (
+                      <tr key={p.productoId} className="hover:bg-slate-800/40">
+                        <td className="p-2 font-medium text-slate-200">{p.productoNombre}</td>
+                        <td className="p-2 text-slate-300">{p.totalUnidades}</td>
+                        <td className="p-2 text-slate-300">${p.totalVentas.toLocaleString("es-CO")}</td>
+                        <td className="p-2 text-amber-400">${p.totalCOGS.toLocaleString("es-CO")}</td>
+                        <td className="p-2 text-right font-bold text-emerald-400">${p.gananciaBruta.toLocaleString("es-CO")}</td>
+                        <td className="p-2 text-right font-bold text-cyan-400">{p.margenPercent}%</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Rentabilidad por Cliente */}
+          <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-4 space-y-3">
+            <h3 className="font-semibold text-sm text-purple-400 flex items-center gap-2">
+              <DollarSign className="w-4 h-4" /> Rentabilidad por Cliente
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-800 text-slate-400">
+                  <tr>
+                    <th className="p-2">Cliente</th>
+                    <th className="p-2">Ventas</th>
+                    <th className="p-2">Costo Insumos</th>
+                    <th className="p-2 text-right">Ganancia ($)</th>
+                    <th className="p-2 text-right">Margen (%)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {(rentabilidad?.porCliente || []).length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="p-3 text-center text-slate-500">Sin datos de ventas</td>
+                    </tr>
+                  ) : (
+                    rentabilidad.porCliente.map((c) => (
+                      <tr key={c.clienteId} className="hover:bg-slate-800/40">
+                        <td className="p-2 font-medium text-slate-200">{c.clienteNombre}</td>
+                        <td className="p-2 text-slate-300">${c.totalVentas.toLocaleString("es-CO")}</td>
+                        <td className="p-2 text-amber-400">${c.totalCOGS.toLocaleString("es-CO")}</td>
+                        <td className="p-2 text-right font-bold text-emerald-400">${c.gananciaBruta.toLocaleString("es-CO")}</td>
+                        <td className="p-2 text-right font-bold text-cyan-400">{c.margenPercent}%</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

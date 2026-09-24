@@ -272,3 +272,16 @@ export function getKardex(token, productoId = null, params = {}) {
   return request(`${pathStr}${qs.toString() ? `?${qs.toString()}` : ""}`, { token })
 }
 
+export function getReporteRentabilidad(token, params = {}) {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== "") qs.set(k, String(v))
+  })
+  return request(`/reportes/rentabilidad${qs.toString() ? `?${qs.toString()}` : ""}`, { token })
+}
+
+export function getAlertasStock(token) {
+  return request("/alertas/stock", { token })
+}
+
+
