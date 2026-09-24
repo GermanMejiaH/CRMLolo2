@@ -155,6 +155,16 @@ export const setCostoManoObraUnitaria = settingService.setCostoManoObraUnitaria
 export const getSetting = settingService.getSetting
 export const setSetting = settingService.setSetting
 
+import * as dashboardService from "./services/dashboardService.js"
+
+export const getExecutiveDashboard = dashboardService.getExecutiveDashboard
+export const getOperationalAlerts = dashboardService.getOperationalAlerts
+export const getInventoryProjections = dashboardService.getInventoryProjections
+export const getClientRankings = dashboardService.getClientRankings
+export const getProductRankings = dashboardService.getProductRankings
+export const getBusinessHealth = dashboardService.getBusinessHealth
+export const getMonthlyClosureData = dashboardService.getMonthlyClosureData
+
 export const listSalesSeries = reportService.listSalesSeries
 export const getDashboardStats = reportService.getDashboardStats
 export const getReporteRentabilidad = reportService.getReporteRentabilidad

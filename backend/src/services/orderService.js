@@ -4,6 +4,8 @@ import * as productRepo from "../repositories/productRepository.js"
 import * as clientRepo from "../repositories/clientRepository.js"
 import { adjustStock, recordKardexMovement } from "./inventoryService.js"
 import { logActivity } from "../utils/logger.js"
+import { getBom } from "./bomService.js"
+import { getCostoManoObraUnitaria } from "./settingService.js"
 
 export function listOrders(filters = {}) {
   return orderRepo.listOrders(filters)
@@ -38,7 +40,11 @@ export function addOrder(data) {
     throw new Error("El pedido debe contener al menos un producto")
   }
 
+  const costoManoObraUnit = getCostoManoObraUnitaria()
+
   let totalPedido = 0
+  let totalCostoPedido = 0
+
   const processedItems = itemsToProcess.map((item) => {
     const pid = Number(item.productoId)
     const cant = Number(item.cantidad || 1)
@@ -61,21 +67,56 @@ export function addOrder(data) {
 
     const subtotal = Number(unitPrice) * cant
     totalPedido += subtotal
+
+    // Snapshot histórico permanente de rentabilidad por ítem
+    const recipe = getBom(pid)
+    let unitMatCost = 0
+    let unitLaborCost = 0
+
+    if (recipe && recipe.length > 0) {
+      unitMatCost = recipe.reduce(
+        (sum, ing) => sum + Number(ing.cantidadRequerida || 0) * Number(ing.costoUnitario || 0),
+        0
+      )
+      unitLaborCost = costoManoObraUnit
+    } else {
+      const product = productRepo.getProductById(pid)
+      unitMatCost = Number(product?.costoUnitario || 0)
+      unitLaborCost = 0
+    }
+
+    const itemCostoMateriales = Math.round(unitMatCost * cant)
+    const itemCostoManoObra = Math.round(unitLaborCost * cant)
+    const itemCostoTotal = itemCostoMateriales + itemCostoManoObra
+    const itemUtilidad = subtotal - itemCostoTotal
+    const itemMargen = subtotal > 0 ? Number(((itemUtilidad / subtotal) * 100).toFixed(2)) : 0
+
+    totalCostoPedido += itemCostoTotal
+
     return {
       productoId: pid,
       cantidad: cant,
       precioUnitario: Number(unitPrice),
-      subtotal
+      subtotal,
+      precioVentaHistorico: subtotal,
+      costoMaterialesHistorico: itemCostoMateriales,
+      costoManoObraHistorico: itemCostoManoObra,
+      costoTotalHistorico: itemCostoTotal,
+      utilidadHistorica: itemUtilidad,
+      margenHistorico: itemMargen
     }
   })
+
+  const utilidadTotalPedido = totalPedido - totalCostoPedido
+  const margenTotalPedido = totalPedido > 0 ? Number(((utilidadTotalPedido / totalPedido) * 100).toFixed(2)) : 0
 
   const primaryItem = processedItems[0]
 
   const stmtOrder = db.prepare(
-    "INSERT INTO orders (clienteId, productoId, cantidad, precioUnitario, total, estado, metodoPago, notas, createdAt) VALUES (?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO orders (clienteId, productoId, cantidad, precioUnitario, total, estado, metodoPago, notas, createdAt, costoTotalHistorico, utilidadHistorica, margenHistorico) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
   )
   const stmtItem = db.prepare(
-    "INSERT INTO order_items (orderId, productoId, cantidad, precioUnitario, subtotal) VALUES (?,?,?,?,?)"
+    "INSERT INTO order_items (orderId, productoId, cantidad, precioUnitario, subtotal, precioVentaHistorico, costoMaterialesHistorico, costoManoObraHistorico, costoTotalHistorico, utilidadHistorica, margenHistorico) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
   )
 
   const transaction = db.transaction(() => {
@@ -89,12 +130,27 @@ export function addOrder(data) {
       estadoInicial,
       metodo,
       data.notas || null,
-      createdAt
+      createdAt,
+      totalCostoPedido,
+      utilidadTotalPedido,
+      margenTotalPedido
     )
     const orderId = info.lastInsertRowid
 
     for (const item of processedItems) {
-      stmtItem.run(orderId, item.productoId, item.cantidad, item.precioUnitario, item.subtotal)
+      stmtItem.run(
+        orderId,
+        item.productoId,
+        item.cantidad,
+        item.precioUnitario,
+        item.subtotal,
+        item.precioVentaHistorico,
+        item.costoMaterialesHistorico,
+        item.costoManoObraHistorico,
+        item.costoTotalHistorico,
+        item.utilidadHistorica,
+        item.margenHistorico
+      )
 
       if (estadoInicial !== "Cancelado") {
         adjustStock(item.productoId, -item.cantidad, "venta_pedido", String(orderId), data.userId || null)

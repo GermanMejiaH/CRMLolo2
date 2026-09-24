@@ -67,8 +67,16 @@ import {
   getCostoManoObraUnitaria,
   setCostoManoObraUnitaria,
   triggerBackup,
+  getExecutiveDashboard,
+  getOperationalAlerts,
+  getInventoryProjections,
+  getClientRankings,
+  getProductRankings,
+  getBusinessHealth,
+  getMonthlyClosureData,
   getAlertasStockYReorden
 } from "./store.js"
+import { buildMonthlyClosureDocument } from "./monthlyClosurePdf.js"
 
 import {
   validate,
@@ -986,6 +994,76 @@ app.post("/admin/backup", auth, async (req, res, next) => {
 app.get("/alertas/stock", auth, (req, res) => {
   const { tipo } = req.query
   res.json(getAlertasStockYReorden(tipo || "materia_prima"))
+})
+
+// --- FASE 3: INTELIGENCIA DE NEGOCIO Y DASHBOARD EJECUTIVO ---
+
+app.get("/dashboard/ejecutivo", auth, (req, res) => {
+  const { year, month } = req.query
+  res.json(getExecutiveDashboard({ year, month }))
+})
+
+app.get("/alertas/operativas", auth, (req, res) => {
+  res.json(getOperationalAlerts())
+})
+
+app.get("/inventario/proyeccion", auth, (req, res) => {
+  res.json(getInventoryProjections())
+})
+
+app.get("/reportes/rankings/clientes", auth, (req, res) => {
+  res.json(getClientRankings())
+})
+
+app.get("/reportes/rankings/productos", auth, (req, res) => {
+  res.json(getProductRankings())
+})
+
+app.get("/cierre-mensual/pdf", auth, (req, res, next) => {
+  const { year, month } = req.query
+  try {
+    const closureData = getMonthlyClosureData(year, month)
+    const doc = new PDFDocument({ margin: 40, size: "LETTER" })
+    const stamp = closureData.periodo || "actual"
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Content-Disposition", `inline; filename="cierre-mensual-${stamp}.pdf"`)
+    doc.pipe(res)
+    buildMonthlyClosureDocument(doc, closureData)
+    doc.end()
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get("/cierre-mensual/csv", auth, (req, res) => {
+  const { year, month, delim = ";" } = req.query
+  const data = getMonthlyClosureData(year, month)
+  const lines = []
+  lines.push(`CIERRE MENSUAL;${data.periodo}`)
+  lines.push(`Ventas Totales${delim}${data.ventasTotales}`)
+  lines.push(`Utilidad Total${delim}${data.utilidadTotal}`)
+  lines.push(`Unidades Producidas${delim}${data.produccion?.unidades || 0}`)
+  lines.push(`Costo Producción${delim}${data.produccion?.costoTotal || 0}`)
+  lines.push("")
+  lines.push(`TOP CLIENTES DEL MES`)
+  lines.push(`Cliente ID${delim}Nombre${delim}Total Comprado`)
+  for (const c of data.topClientes || []) {
+    lines.push(`${c.clienteId}${delim}"${c.clienteNombre}"${delim}${c.totalVentas}`)
+  }
+  lines.push("")
+  lines.push(`TOP PRODUCTOS DEL MES`)
+  lines.push(`Producto ID${delim}Nombre${delim}Unidades${delim}Total Ventas`)
+  for (const p of data.topProductos || []) {
+    lines.push(`${p.productoId}${delim}"${p.productoNombre}"${delim}${p.unidadesVendidas}${delim}${p.totalVentas}`)
+  }
+  const csv = lines.join("\n")
+  res.setHeader("Content-Type", "text/csv; charset=utf-8")
+  res.setHeader("Content-Disposition", `attachment; filename="cierre-mensual-${data.periodo}.csv"`)
+  res.send(csv)
+})
+
+app.get("/salud-negocio", auth, (req, res) => {
+  res.json(getBusinessHealth())
 })
 
 // Global Error Handler Middleware

@@ -315,3 +315,34 @@ if (!hasColumn("products", "unidadMedida")) {
   db.exec("ALTER TABLE products ADD COLUMN unidadMedida TEXT DEFAULT 'unidades'")
   db.exec("UPDATE products SET unidadMedida = 'unidades' WHERE unidadMedida IS NULL")
 }
+
+const orderItemHistoricalCols = [
+  { name: "precioVentaHistorico", type: "INTEGER" },
+  { name: "costoMaterialesHistorico", type: "INTEGER" },
+  { name: "costoManoObraHistorico", type: "INTEGER" },
+  { name: "costoTotalHistorico", type: "INTEGER" },
+  { name: "utilidadHistorica", type: "INTEGER" },
+  { name: "margenHistorico", type: "REAL" }
+]
+
+for (const col of orderItemHistoricalCols) {
+  if (!hasColumn("order_items", col.name)) {
+    try {
+      db.exec(`ALTER TABLE order_items ADD COLUMN ${col.name} ${col.type}`)
+    } catch {}
+  }
+}
+
+const orderHistoricalCols = [
+  { name: "costoTotalHistorico", type: "INTEGER" },
+  { name: "utilidadHistorica", type: "INTEGER" },
+  { name: "margenHistorico", type: "REAL" }
+]
+
+for (const col of orderHistoricalCols) {
+  if (!hasColumn("orders", col.name)) {
+    try {
+      db.exec(`ALTER TABLE orders ADD COLUMN ${col.name} ${col.type}`)
+    } catch {}
+  }
+}
