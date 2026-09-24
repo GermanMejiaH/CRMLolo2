@@ -193,7 +193,21 @@ CREATE TABLE IF NOT EXISTS kardex_movements (
   FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE,
   FOREIGN KEY (userId) REFERENCES users(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL
+);
 `)
+
+try {
+  db.exec("ALTER TABLE assembly_orders ADD COLUMN costoMateriales INTEGER DEFAULT 0")
+} catch {}
+try {
+  db.exec("ALTER TABLE assembly_orders ADD COLUMN costoManoObra INTEGER DEFAULT 0")
+} catch {}
+
+db.prepare("INSERT OR IGNORE INTO settings (clave, valor) VALUES (?, ?)").run("costo_mano_obra_unitaria", "1000")
 
 db.exec(`
 CREATE INDEX IF NOT EXISTS idx_orders_createdAt ON orders(createdAt);

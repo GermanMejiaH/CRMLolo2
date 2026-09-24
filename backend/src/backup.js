@@ -2,10 +2,39 @@ import fs from "fs"
 import path from "path"
 import Database from "better-sqlite3"
 import { config } from "./config.js"
+import { logActivity, logError } from "./utils/logger.js"
+
+export function pruneOldBackups(dstDir = config.backupDir, maxKeep = 30) {
+  if (!fs.existsSync(dstDir)) return []
+  const files = fs
+    .readdirSync(dstDir)
+    .filter((f) => f.endsWith(".db"))
+    .map((f) => {
+      const fullPath = path.join(dstDir, f)
+      const stat = fs.statSync(fullPath)
+      return { file: f, path: fullPath, mtime: stat.mtimeMs }
+    })
+    .sort((a, b) => b.mtime - a.mtime)
+
+  const deleted = []
+  if (files.length > maxKeep) {
+    const toDelete = files.slice(maxKeep)
+    for (const item of toDelete) {
+      try {
+        fs.unlinkSync(item.path)
+        deleted.push(item.file)
+      } catch (err) {
+        logError("BACKUP_PRUNE_ERROR", err)
+      }
+    }
+  }
+  return deleted
+}
 
 async function runBackup(options = {}) {
   const srcDbPath = options.srcDbPath || config.dbPath
   const dstDir = options.dstDir || config.backupDir
+  const maxKeep = options.maxKeep || 30
 
   if (!fs.existsSync(srcDbPath)) {
     throw new Error(`Base de datos origen no encontrada en: ${srcDbPath}`)
@@ -67,6 +96,10 @@ async function runBackup(options = {}) {
     }
   }
 
+  // Prune old backups keeping only the last maxKeep (default 30)
+  const deletedOld = pruneOldBackups(dstDir, maxKeep)
+  logActivity("RESPALDO_CREADO", { dstPath, size: stat.size, deletedOldBackups: deletedOld })
+
   if (!options.silent) {
     console.log(`Respaldo verificado exitosamente: ${dstPath} (${stat.size} bytes)`)
   }
@@ -82,3 +115,4 @@ if (process.argv[1] && process.argv[1].endsWith("backup.js")) {
 }
 
 export { runBackup }
+

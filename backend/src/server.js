@@ -7,6 +7,7 @@ import path from "path"
 import PDFDocument from "pdfkit"
 import nodemailer from "nodemailer"
 import { buildProformaDocument } from "./proformaPdf.js"
+import { logActivity, logError } from "./utils/logger.js"
 import {
   payments,
   orderStates,
@@ -59,6 +60,13 @@ import {
   getKardex,
   getCapacidadEnsambladoTeorica,
   getReporteRentabilidad,
+  getRentabilidadPedidos,
+  getRentabilidadClientes,
+  getRentabilidadProductos,
+  getFlujoCajaSimple,
+  getCostoManoObraUnitaria,
+  setCostoManoObraUnitaria,
+  triggerBackup,
   getAlertasStockYReorden
 } from "./store.js"
 
@@ -266,6 +274,7 @@ app.post("/auth/login", loginRateLimiter, (req, res) => {
     }
   }
   const token = signToken({ sub: u.id, email: u.email, role: u.role, name: u.name })
+  logActivity("LOGIN_EXITOSO", { userId: u.id, email: u.email, ip })
   res.json({ token })
 })
 
@@ -568,11 +577,15 @@ app.put("/pedidos/:id", auth, allowRoles("Admin", "Operador"), (req, res) => {
   const body = req.body || {}
   const before = getOrder(id)
   if (!before) return res.status(404).json({ error: "not_found" })
-  const updated = updateOrder(id, { ...body, userId: req.user?.sub })
   try {
-    addOrderAuditEntry(id, req.user?.sub, `Estado actual: ${updated.estado}`)
-  } catch {}
-  res.json(updated)
+    const updated = updateOrder(id, { ...body, userId: req.user?.sub })
+    try {
+      addOrderAuditEntry(id, req.user?.sub, `Estado actual: ${updated.estado}`)
+    } catch {}
+    res.json(updated)
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
 })
 
 app.post("/pedidos/:id/proforma", auth, allowRoles("Admin", "Operador"), async (req, res) => {
@@ -909,9 +922,76 @@ app.get("/reportes/rentabilidad", auth, (req, res) => {
   res.json(getReporteRentabilidad(filters))
 })
 
+app.get("/configuracion", auth, (req, res) => {
+  res.json({ costoManoObraUnitaria: getCostoManoObraUnitaria() })
+})
+
+app.put("/configuracion", auth, (req, res) => {
+  const { costoManoObraUnitaria, valor } = req.body
+  const newValor = costoManoObraUnitaria != null ? costoManoObraUnitaria : valor
+  if (newValor == null || Number.isNaN(Number(newValor)) || Number(newValor) < 0) {
+    return res.status(400).json({ error: "costo_mano_obra_invalido", message: "Se requiere un valor numérico válido >= 0" })
+  }
+  const updated = setCostoManoObraUnitaria(Number(newValor))
+  res.json({ costoManoObraUnitaria: updated })
+})
+
+app.get("/reportes/rentabilidad/pedidos", auth, (req, res) => {
+  const { from, to, clienteId, estado } = req.query
+  const filters = {}
+  if (from) filters.from = Number(from)
+  if (to) filters.to = Number(to)
+  if (clienteId) filters.clienteId = Number(clienteId)
+  if (estado) filters.estado = String(estado)
+  res.json(getRentabilidadPedidos(filters))
+})
+
+app.get("/reportes/rentabilidad/clientes", auth, (req, res) => {
+  const { from, to, clienteId, estado } = req.query
+  const filters = {}
+  if (from) filters.from = Number(from)
+  if (to) filters.to = Number(to)
+  if (clienteId) filters.clienteId = Number(clienteId)
+  if (estado) filters.estado = String(estado)
+  res.json(getRentabilidadClientes(filters))
+})
+
+app.get("/reportes/rentabilidad/productos", auth, (req, res) => {
+  const { from, to, clienteId, estado } = req.query
+  const filters = {}
+  if (from) filters.from = Number(from)
+  if (to) filters.to = Number(to)
+  if (clienteId) filters.clienteId = Number(clienteId)
+  if (estado) filters.estado = String(estado)
+  res.json(getRentabilidadProductos(filters))
+})
+
+app.get("/reportes/flujo-caja", auth, (req, res) => {
+  const { from, to } = req.query
+  const filters = {}
+  if (from) filters.from = Number(from)
+  if (to) filters.to = Number(to)
+  res.json(getFlujoCajaSimple(filters))
+})
+
+app.post("/admin/backup", auth, async (req, res, next) => {
+  try {
+    const backupPath = await triggerBackup()
+    res.json({ success: true, backupPath })
+  } catch (err) {
+    next(err)
+  }
+})
+
 app.get("/alertas/stock", auth, (req, res) => {
   const { tipo } = req.query
   res.json(getAlertasStockYReorden(tipo || "materia_prima"))
+})
+
+// Global Error Handler Middleware
+app.use((err, req, res, next) => {
+  logError("EXPRESS_UNHANDLED_ERROR", err)
+  res.status(500).json({ error: "internal_server_error", message: err.message || "Error interno del servidor" })
 })
 
 let server = null
